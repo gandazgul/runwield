@@ -1,5 +1,5 @@
 /**
- * @module shared/session/session-name
+ * @module shared/session-name
  * UI-independent persisted Session Name normalization.
  */
 

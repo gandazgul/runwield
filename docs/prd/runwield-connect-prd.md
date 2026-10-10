@@ -104,13 +104,20 @@ compatibility, privacy at the host boundary, and host-specific continuation.
 
 ### Explicit per-request activation
 
-**Scope and maturity:** Target for the first Claude Code Preview and all later adapters.
+**Scope and maturity:** The Claude Code plugin delivers activation steps 1, 3, and 4 below and FEATURE Plan submission.
+For local development, load `src/attached/claude/plugin` with `claude --plugin-dir` and start
+`/runwield:request <request>`. `wld attached activate` identifies the Project root, binds one host request to one
+Attached Workflow Record, and returns a pending Router action with current role instructions. `triage_report` hands a
+FEATURE request to the Planner; `plan_written` gives the written Plan its ID and Triage front matter. The Plan stays in
+draft and can be opened and run with `wld`. The operations are also MCP tools through `wld attached mcp`. The plugin
+checks the role contract version. Review, execution, the install flow, and full host and Core preflight (step 2) remain
+target scope.
 
 **Requirement: Leave ordinary host work unchanged outside explicit activation.**
 
 - Installing a RunWield Connect plugin must not alter ordinary External Agent Host behavior.
-- A user explicitly starts one Attached Workflow for one User Request, conceptually through `/runwield <request>` or the
-  closest host-native equivalent.
+- A user explicitly starts one Attached Workflow for one User Request, conceptually through
+  `/runwield:request <request>` or the closest host-native equivalent.
 - RunWield prompts, restrictions, and lifecycle claims apply only within that Attached Workflow.
 - The host returns to ordinary behavior after the workflow reaches an outcome.
 - Existing RunWield closure and recovery choices govern an active workflow; Connect does not introduce a separate
@@ -132,7 +139,7 @@ After installation:
 The primary experience is conceptually:
 
 ```text
-/runwield <request>
+/runwield:request <request>
 ```
 
 The exact spelling may adapt to host command conventions. Activation should:
@@ -189,7 +196,12 @@ Initialization is optional and may occur before or after the first Attached Work
 
 ### Shared Plan and verification outcomes
 
-**Scope and maturity:** Target; Core owns the shared requirements.
+**Scope and maturity:** The Claude FEATURE Preview delivers Plan review, Feedback, approval, and readiness through
+Plannotator and Core. Review decisions are durable before browser acknowledgment. Claude receives Feedback and image
+paths through `status`, revises the Plan, and submits the next round into the same browser page. Cancellation returns to
+Claude with a review-canceled note and leaves the workflow open. The Preview also implements the guarded execution
+handoff and implementation checkpoint below. Verification, code review, and publication remain target scope (children 05
+and 06); Core owns their shared requirements.
 
 **Requirement: Keep Core approval and verification authoritative.**
 
@@ -228,8 +240,14 @@ the external host. The host continues to own its conversation and model calls.
 
 - Given a host message claiming completion, when required checks or delivery evidence are missing, the Plan does not
   become Verified.
-- When the user submits browser review feedback, it returns to the same attached planning flow; approval is recorded
-  through Core for the reviewed Plan.
+- When the user submits browser review feedback, Claude retrieves the durable Feedback and image paths, revises, and
+  submits the next round into the same Plannotator page. Browser edits are saved once, not repeated by the Planner.
+- Given an unchanged semantic Plan revision, approval records Core approval and readiness and leaves the Plan
+  `ready_for_work`. A meaningful edit rejects a stale decision; formatting-only changes do not discard approval.
+- Given process loss during review, `/runwield:plan-review` in a fresh Claude conversation restores the most recent open
+  workflow. A pending round reopens; an applied outcome is retrieved without repeating transitions.
+- When the user cancels or exits browser review, Claude receives a cancellation note. Closing a tab or losing the MCP
+  process does not fabricate cancellation or abandon the workflow.
 - When a host cannot satisfy a required verification condition, it exposes the limitation and a supported continuation
   or deliberate abandonment without weakening Verified or silently ending the workflow.
 
@@ -237,25 +255,64 @@ the external host. The host continues to own its conversation and model calls.
 
 ### Isolated implementation
 
-**Scope and maturity:** Target for planned attached work; QUICK_FIX retains Core’s lighter path.
+**Scope and maturity:** The Claude FEATURE Preview implements approved execution handoff, durable non-Git consent,
+worker recovery, and guarded implementation completion through Core. Automated real-Git and fresh-process tests cover
+these coordination guarantees. Host-native worker dispatch is instructed by the plugin, not sandboxed. Live acceptance
+on Claude Code 2.1.293 confirms automatic handoff after browser approval, coordinator-owned completion, and fresh-host
+restoration of the same worker action and worktree. No wider host-version range is declared. Validation and publication
+remain later Preview scope (children 05 and 06). Other hosts, QUICK_FIX, and safe-handoff fallback beyond non-Git
+consent remain targets.
 
-**Requirement: Execute planned work within its approved isolation.**
+**Requirement: Automatically hand approved work to its isolated implementer.**
 
-- Planned FEATURE execution remains isolated in a RunWield-owned worktree by default.
-- The invoking host conversation may supervise a host-native implementation worker operating in that worktree.
-- All worker model calls still come from the External Agent Host.
-- QUICK_FIX retains its existing in-place, no-Plan behavior.
-- When a host cannot support a safe worktree handoff, RunWield may use its existing explicit in-place consent path and
-  must disclose the reduced recovery assurance.
-- External hosts must not create an independent worktree lifecycle that competes with RunWield's registry, baseline,
-  validation, or recovery state.
+- After approval and readiness, Claude immediately starts execution; no separate execution confirmation is required.
+- Core prepares a RunWield-owned worktree, branch, baseline, and registered execution attempt through the same authority
+  used by Core Sessions. Claude discloses the directory, branch, and RunWield-owned `.gitignore` block.
+- The invoking checkout is preserved, including dirty and untracked user work, except that disclosed `.gitignore` block.
+- The coordinating conversation dispatches a fresh host-native worker with the Plan path, execution directory, and
+  current engineer or frontend-engineer instructions. All worker model calls belong to Claude. RunWield starts no model
+  Session or execution backend.
+- The worker uses the execution directory, not the invoking checkout. It returns a Markdown bullet report to the
+  coordinator and makes no RunWield lifecycle calls. Role instructions are guidance, not a host tool sandbox.
+- External hosts must not create competing worktree isolation. RunWield's registry owns the one-live-attempt invariant.
+
+**Requirement: Obtain durable conversational consent for non-Git execution.**
+
+- Without remembered Core consent, Claude asks the durable disclosure question in plain text. Proceeding edits current
+  files directly and skips Git-only isolation and recovery. Core remembers explicit consent for planned Plan work.
+- Declining leaves the Plan ready and the workflow open; Claude must not automatically restart or ask again.
+- A Git handoff failure does not silently select in-place execution. Other fallback capabilities remain targets.
+
+**Requirement: Accept only the issued structured implementation outcome.**
+
+- The coordinating conversation submits `task_completed` with `actionId` and the Core bullet-point `message` report.
+- Core checks workflow revision, action identity, live registry identity/path/branch, and the issued Plan identity and
+  revision. A changed Plan body, missing worktree, stale action, or prose claim outside the operation cannot advance
+  work.
+- Shared Core finalization restores a deleted execution Plan from its recorded baseline, checkpoints implementation, and
+  records `implemented`. Accepted operations replay without repeating effects.
+- `implemented` means implementation is recorded, not validated, Verified, or published. The workflow stays open for
+  later validation and publication, under [Core recovery](runwield-core-prd.md#execution-validation-and-recovery).
 
 **Acceptance scenarios:**
 
-- Given an approved ready Plan, when a host implementation worker starts, it works in the RunWield-owned execution
-  worktree and preserves the invoking checkout.
-- When safe worktree handoff is unavailable, only an existing explicit in-place consent path may proceed, with reduced
-  recovery assurance disclosed.
+- Given an approved ready Plan, Claude automatically starts execution, reports the isolation disclosure, and dispatches
+  a fresh host worker with its role and Plan path. The invoking checkout stays intact except the managed ignore block.
+- Given a non-Git project without remembered consent, a fresh conversation retrieves the same question. Proceed uses
+  Core's consent memory and in-place preparation; decline makes no implementation handoff and does not trigger a
+  restart.
+- Given a returned worker report against the issued action and unchanged Plan, Core records implementation and a Git
+  checkpoint. A repeated accepted operation advances nothing twice; changed authority rejects completion.
+- Given a deleted execution Plan with a recorded baseline, Core restores it and completes through its shared guards.
+- Given worker or process loss, `/runwield:implement` restores the same directory, action, and current role
+  instructions. A lost Attached write after preparation adopts the same Core attempt; a lost write after completion
+  settles the result on retry. Proven settled preparation journals heal without a second live worktree.
+- Given process loss before first Plan materialization or during completion settlement, retry uses
+  [Core's shared preparation and completion authority](runwield-core-prd.md#execution-validation-and-recovery). A
+  partial completion retains its issued action until Core saves the checkpoint and completes registry settlement.
+- Given a Plan body edit while completion waits for Core's lock, the issued completion is rejected; it cannot accept a
+  newer scope. Given Core archives the execution Plan, Attached status returns `plan_advanced_in_core`, not a worker
+  handoff to a missing document.
 
 <a id="structured-evidence-not-transcript-import"></a>
 
@@ -290,7 +347,11 @@ uses the same guidance within each user project’s own PRD structure.
 
 ### Lazy project setup and recovery
 
-**Scope and maturity:** Target for the first Preview; no always-running service prerequisite.
+**Scope and maturity:** The Preview uses short Core operations for activation, Triage, planning, durable browser review,
+and execution handoff. Activation and Triage write nothing to the repository. Plan submission previews required runtime
+and ignore setup; execution discloses its worktree and branch. Fresh processes restore review decisions, consent
+questions, implementation actions, and accepted results. No always-running service is required. Validation and
+publication recovery remain later Preview scope, with Core requirements authoritative.
 
 **Requirement: Start with necessary setup and preserve work after interruption.**
 
@@ -324,6 +385,8 @@ uses the same guidance within each user project’s own PRD structure.
 - Given a trusted uninitialized repository, when the user starts their first attached change, full `wld init` is
   optional and material required repository changes are previewed.
 - When host or Core processes stop, saved Plans and work remain available for useful continuation or explicit retry.
+  `/runwield:plan-review` restores browser review; `/runwield:implement` restores the execution handoff described in
+  [Isolated implementation](#isolated-implementation), including the same registered worktree after worker loss.
 - When an interrupted command may already have changed external state, recovery reconciles available evidence and asks
   for a user decision only if external uncertainty remains; it never blindly replays the command.
 
@@ -347,15 +410,15 @@ Session. Users must understand which mode they are choosing.
 
 Before starting work, disclose whether the host can:
 
-- prevent implementation changes until planning and approval permit them;
 - run isolated implementation and independent review;
 - use the required tools and review interactions;
 - cancel and recover work reliably;
 - install, update, disable, and remove the integration cleanly.
 
-Do not claim a hard planning restriction when the host cannot enforce it, or independent verification when review lacks
-independence. Preserve the user's host permissions. A model's claim of completion cannot replace actual validation and
-delivery evidence.
+Role boundaries during an Attached Workflow come from RunWield's role instructions, as they do in Core. For example, the
+Planner is told to write only Plan files; neither Core nor Connect blocks its other tools. Do not describe these
+instructions as a hard restriction, and do not claim independent verification when review lacks independence. Preserve
+the user's host permissions. A model's claim of completion cannot replace actual validation and delivery evidence.
 
 Maintain tested host-version ranges and clear Preview or stable labels. Architecture and implementation Plans choose
 transports, role dispatch, tool contracts, and host-specific hooks; this PRD defines the outcomes those choices support.
@@ -364,8 +427,8 @@ transports, role dispatch, tool contracts, and host-specific hooks; this PRD def
   development and explain Connect, Core, and Workspace together.
 - RunWield Connect must appear as a distinct plugin ecosystem, with current Preview or stable availability shown per
   External Agent Host.
-- Host-specific guides must cover installation, `/runwield` activation, optional `/runwield:init`, review, permissions,
-  local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
+- Host-specific guides must cover installation, `/runwield:request` activation, optional `/runwield:init`, review,
+  permissions, local artifacts, privacy boundaries, recovery, updates, disablement, and uninstall.
 - Documentation must distinguish available adapters from planned targets and must not imply parity based only on a
   host's listed APIs.
 - Core and Workspace comparisons may explain genuine workflow, integration, and collaboration advantages without
@@ -375,8 +438,8 @@ transports, role dispatch, tool contracts, and host-specific hooks; this PRD def
 
 - When a user chooses an adapter, its guide shows tested versions, Preview/stable availability, permission requirements,
   and unsupported interactions before they depend on them.
-- Given a host that cannot enforce planning restrictions or independent review, when compatibility is presented, prompt
-  guidance is not described as hard enforcement.
+- When compatibility is presented, role instructions such as the Planner's Plan-only writes are not described as hard
+  enforcement, and a host that cannot run independent review is not presented as providing it.
 - When the user compares Connect with Core execution backends or ACP clients, documentation identifies who owns the
   conversation and makes model calls.
 
@@ -389,6 +452,8 @@ transports, role dispatch, tool contracts, and host-specific hooks; this PRD def
 **Requirement: Support users who choose to remain in their external host.**
 
 - RunWield Connect is a supported destination for users who never adopt another RunWield surface.
+- Connect journeys stay in the External Agent Host and its browser review surface. They must not require users to
+  operate the `wld` CLI or TUI. The Claude Preview restores review through `/runwield:plan-review` and host tools.
 - Primary product outcomes are successful verified work, retained use, and trustworthy recovery.
 - Movement to direct Core use or Workspace is a secondary organic outcome.
 - Product-family messaging may explain genuine integration and collaboration advantages but must not reserve feasible
@@ -409,7 +474,7 @@ The Claude Code Preview is complete only when a user can perform this bounded en
    flow.
 2. Start from a trusted but otherwise uninitialized Git repository.
 3. Invoke RunWield for a FEATURE-sized User Request in an existing Claude Code conversation.
-4. Have Claude perform RunWield Triage and enter the appropriate planning behavior without making implementation edits.
+4. Have Claude perform RunWield Triage and plan under the RunWield Planner instructions.
 5. Have Claude produce a canonical RunWield Plan and submit it through Core-owned lifecycle operations.
 6. Receive Plannotator Feedback, revise the Plan in the same user-facing flow, and resubmit it.
 7. Approve the Plan through Plannotator and pass the normal Readiness Gate.
@@ -462,9 +527,9 @@ product semantics. Later adapters must reuse the host-neutral Core contract rath
 ### Preview Acceptance
 
 - A user can install RunWield Connect for Claude Code without configuring a second model provider or RunWield account.
-- A normal Claude Code request made after installation but outside `/runwield` receives no RunWield prompt injection,
-  restriction, or workflow state.
-- A first `/runwield` FEATURE request works in an uninitialized trusted Git repository.
+- A normal Claude Code request made after installation but outside `/runwield:request` receives no RunWield prompt
+  injection, restriction, or workflow state.
+- A first `/runwield:request` FEATURE request works in an uninitialized trusted Git repository.
 - No LLM call in the journey is made outside Claude Code.
 - Plan review and Feedback use canonical RunWield artifacts and Plannotator.
 - Implementation occurs in a RunWield-owned worktree and does not begin before approval and readiness.
@@ -503,8 +568,9 @@ black-box adapter tests, explicit Preview labels, and fast-failing preflight dia
 
 ### False Enforcement Claims
 
-Some hosts expose tool paths that hooks cannot observe. Use capability-specific gates, baseline and working-tree checks,
-and fail visibly when an invariant cannot be proven. Do not equate a prompt instruction with enforcement.
+Role boundaries are instructions, not sandboxes, in Connect as in Core. Do not describe them as enforcement. The
+guarantees that matter are enforced where RunWield owns the fact: Plan Lifecycle guards, approval and readiness,
+RunWield-owned worktrees, validation evidence, and merge safeguards.
 
 ### Split-Brain Workflow State
 

@@ -320,15 +320,32 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
     const primaryApprovalAction = reviewGroup
         ? PLAN_APPROVAL_ACTIONS.RUN
         : primaryPlanApprovalActionForClassification(planClassification, initialPayload.frontmatter?.type);
-    const outcomeCopy = reviewOutcomeCopy(
-        submitted,
-        planClassification,
-        initialPayload.reviewContext?.sessionLabel,
-        Boolean(reviewGroup),
-    );
+    const approvalLabels = initialPayload.reviewRevisionUrl
+        ? { primary: "Approve & Ready", mobile: "Ready" }
+        : undefined;
+    const outcomeCopy = initialPayload.reviewRevisionUrl
+        ? submitted === "feedback"
+            ? {
+                title: "Feedback sent",
+                subtitle: "Claude can retrieve your feedback. The next review round opens in this page.",
+            }
+            : {
+                title: "Approved & Ready",
+                subtitle: "The Plan is ready for work. Execution handoff is a later Preview step.",
+            }
+        : reviewOutcomeCopy(
+            submitted,
+            planClassification,
+            initialPayload.reviewContext?.sessionLabel,
+            Boolean(reviewGroup),
+        );
     const [executionPolicy, setExecutionPolicy] = useState(trustedPolicy);
     const executionAgent = executionPolicy.executionAgent;
     const collaborationRecommendation = executionPolicy.collaborationRecommendation;
+    const waitingForRevision = Boolean(initialPayload.reviewRevisionUrl && submitted === "feedback");
+    const reviewNotice = waitingForRevision
+        ? { state: "info", title: outcomeCopy.title, message: outcomeCopy.subtitle }
+        : initialPayload.reviewNotice;
     const conversationEnabled = initialPayload.mode === "dev" || Boolean(initialPayload.conversationStatusUrl) ||
         Boolean(
             initialPayload.operationStatusUrl && initialPayload.planDetailUrl &&
@@ -434,6 +451,31 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
             reviewGroup?.setBusy(false);
         }
     }
+
+    useEffect(() => {
+        if (!waitingForRevision) return;
+        const controller = new AbortController();
+        const waitForRevision = async () => {
+            try {
+                while (!controller.signal.aborted) {
+                    const url = new URL(initialPayload.reviewRevisionUrl, globalThis.location.href);
+                    url.searchParams.set("token", initialPayload.token);
+                    const response = await fetch(url, { signal: controller.signal });
+                    if (!response.ok) throw new Error("The review host stopped. Reopen the review in Claude.");
+                    const current = await response.json();
+                    if (current.revision > initialPayload.reviewRevision) {
+                        globalThis.location.reload();
+                        return;
+                    }
+                    await pause(750);
+                }
+            } catch (caught) {
+                if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : String(caught));
+            }
+        };
+        void waitForRevision();
+        return () => controller.abort();
+    }, [waitingForRevision, initialPayload]);
 
     async function submitFeedback() {
         setSubmitting("feedback");
@@ -967,8 +1009,10 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
                                     setExecutionPolicy={setExecutionPolicy}
-                                    disabled={submitting !== null || plannerWorking || reviewGroup?.busy}
+                                    disabled={submitting !== null || plannerWorking || waitingForRevision ||
+                                        reviewGroup?.busy}
                                     primaryApprovalAction={primaryApprovalAction}
+                                    approvalLabels={approvalLabels}
                                     sequenceCount={reviewGroup?.count}
                                     onApprove={submitApprove}
                                     isLoading={submitting === "approve"}
@@ -998,25 +1042,27 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                     executionAgent={executionAgent}
                                     collaborationRecommendation={collaborationRecommendation}
                                     setExecutionPolicy={setExecutionPolicy}
-                                    disabled={submitting !== null || plannerWorking || reviewGroup?.busy}
+                                    disabled={submitting !== null || plannerWorking || waitingForRevision ||
+                                        reviewGroup?.busy}
                                     primaryApprovalAction={primaryApprovalAction}
+                                    approvalLabels={approvalLabels}
                                     sequenceCount={reviewGroup?.count}
                                     onApprove={submitApprove}
                                     isLoading={submitting === "approve"}
                                 />
                             </header>
                         )}
-                    {initialPayload.reviewNotice && (
+                    {reviewNotice && (
                         <section
-                            className={`rw-plan-review-notice state-${initialPayload.reviewNotice.state || "info"}`}
+                            className={`rw-plan-review-notice state-${reviewNotice.state || "info"}`}
                             role="status"
                         >
-                            <strong>{initialPayload.reviewNotice.title || "Review status"}</strong>
-                            <p>{initialPayload.reviewNotice.message}</p>
-                            {initialPayload.reviewNotice.actionLabel && initialPayload.reviewNotice.actionHref
+                            <strong>{reviewNotice.title || "Review status"}</strong>
+                            <p>{reviewNotice.message}</p>
+                            {reviewNotice.actionLabel && reviewNotice.actionHref
                                 ? (
-                                    <a href={initialPayload.reviewNotice.actionHref}>
-                                        {initialPayload.reviewNotice.actionLabel}
+                                    <a href={reviewNotice.actionHref}>
+                                        {reviewNotice.actionLabel}
                                     </a>
                                 )
                                 : null}
@@ -1426,7 +1472,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                                                     <FeedbackButton
                                                         onClick={submitFeedback}
                                                         disabled={!hasGroupFeedback || submitting !== null ||
-                                                            plannerWorking}
+                                                            plannerWorking || waitingForRevision}
                                                         isLoading={submitting === "feedback"}
                                                         label="Send Annotations"
                                                         loadingLabel={
@@ -1543,10 +1589,10 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
                     {active && (
                         <ReviewCompletion
                             payload={initialPayload}
-                            submitted={submitted}
+                            submitted={waitingForRevision ? null : submitted}
                             title={outcomeCopy.title}
                             subtitle={outcomeCopy.subtitle}
-                            agentLabel="RunWield"
+                            agentLabel={initialPayload.reviewRevisionUrl ? agentLabel : "RunWield"}
                         />
                     )}
                 </div>
@@ -1576,6 +1622,7 @@ function PlanReviewDocument({ payload, presentation = "standalone", reviewGroup,
             "x-runwield-review-token": initialPayload.token,
         };
         if (initialPayload.csrfToken) headers["x-runwield-csrf"] = initialPayload.csrfToken;
+        if (initialPayload.reviewRevisionUrl) body = { ...body, reviewRevision: initialPayload.reviewRevision };
         const requestId = crypto.randomUUID();
         const response = await fetch(targetUrl, {
             method: "POST",
@@ -1622,6 +1669,7 @@ function PlanReviewHeaderActions({
     setExecutionPolicy,
     disabled,
     primaryApprovalAction,
+    approvalLabels,
     onApprove,
     isLoading,
     sequenceCount,
@@ -1666,6 +1714,7 @@ function PlanReviewHeaderActions({
             <PlanApprovalSplitButton
                 sequence={sequenceCount !== undefined}
                 primaryAction={primaryApprovalAction}
+                labels={approvalLabels}
                 onApprove={onApprove}
                 disabled={disabled}
                 isLoading={isLoading}
@@ -1674,10 +1723,11 @@ function PlanReviewHeaderActions({
     );
 }
 
-function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading, sequence = false }) {
+function PlanApprovalSplitButton({ primaryAction, onApprove, disabled, isLoading, sequence = false, labels }) {
     const isProject = primaryAction === PLAN_APPROVAL_ACTIONS.DECOMPOSE;
-    const primaryLabel = sequence ? "Approve & Execute" : isProject ? "Approve & Slice" : "Approve & Run";
-    const primaryMobileLabel = sequence ? "Execute" : isProject ? "Slice" : "Run";
+    const primaryLabel = labels?.primary ||
+        (sequence ? "Approve & Execute" : isProject ? "Approve & Slice" : "Approve & Run");
+    const primaryMobileLabel = labels?.mobile || (sequence ? "Execute" : isProject ? "Slice" : "Run");
     const loadingLabel = isProject ? "Approving…" : "Approving…";
 
     function submitPrimary() {

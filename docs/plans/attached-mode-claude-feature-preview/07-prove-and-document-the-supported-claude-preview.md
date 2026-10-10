@@ -71,7 +71,8 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 ## Reuse Opportunities
 
-- All earlier child operation/host fixtures — keep one canonical operation surface and role materializer.
+- All earlier child operation/host fixtures — keep one canonical operation surface and one run-time role-instruction
+  resolver.
 - Existing release, docs, link validation, and sandboxed test tooling — evidence and published guide integrity.
 - Canonical Work Record and publication artifacts — observable acceptance endpoints rather than host chat claims.
 
@@ -87,9 +88,9 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 3. The integrated journey proves a planning/review interruption and an execution/validation interruption, with
    fresh-process continuation, closed host-owned endpoints, retained work, no blind replay, and no false lifecycle
    advance.
-4. Update rejects or regenerates stale layered assets before use. Disable/uninstall removes generated host integration,
-   restores ordinary Claude behavior, and preserves canonical artifacts and recovery checkpoints. Compatible reinstall
-   can resume active work; incompatible continuation gives precise version guidance.
+4. Update rejects an adapter whose contract version Core does not speak, with precise update guidance. Disable/uninstall
+   removes the host integration, restores ordinary Claude behavior, and preserves canonical artifacts and recovery
+   checkpoints. Compatible reinstall can resume active work; incompatible continuation gives precise version guidance.
 5. Architecture and privacy instrumentation prove no Core-owned model calls, hidden SessionRuntime, transcript
    ingestion, adapter-owned domain mutation, or copied validation policy across the full journey. Privacy-safe metrics,
    if emitted, exclude prompts, transcripts, source content, secrets, and sensitive paths.
@@ -111,7 +112,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 - Headed browser: prove Plan Feedback/resubmission/approval and configured code review using actual MCP-owned review
   endpoints; confirm they stop when Claude closes and reopen only through supported reactivation. Planner discovers the
   integrated launch command/URLs from delivered children; development fixtures alone are insufficient.
-- Black-box removal/update: exercise stale Core/assets, update, disable/uninstall during active work, ordinary unrelated
+- Black-box removal/update: exercise a stale Core, update, disable/uninstall during active work, ordinary unrelated
   prompts, and compatible reinstall. Compare retained Plans, records, Git/worktree registry, and Attached checkpoints
   before and after.
 - Expected: every claimed version passes the complete journey and inactive no-op/privacy/model-ownership checks. A
@@ -122,7 +123,7 @@ shifts, migration or compatibility risk grows, or the Verification Plan no longe
 
 - Host-version access and host trust prompts may require a human. Record the exact blocked prerequisite rather than
   claiming the unrun scenario passed.
-- A test that lists a documented host API is not capability proof; actual hook, worker, permission, and worktree
+- A test that lists a documented host API is not capability proof; actual command, MCP, worker, permission, and worktree
   behavior must be exercised.
 - Integration defects belong to their owning runtime/domain areas; this child must not work around them by weakening the
   plugin's gates.

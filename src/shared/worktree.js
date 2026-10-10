@@ -5,7 +5,7 @@
 
 import { basename, dirname, join } from "@std/path";
 import { getHomeDir, RUNWIELD_DIR_NAME, WORKTREE_BRANCH_PREFIX } from "../constants.js";
-import { encodeCwdForSessionDir } from "./session/root-session.js";
+import { encodeCwdForSessionDir } from "./project-directory-key.ts";
 import {
     captureWorktreeProjectContext,
     isTransferredProjectContext,
