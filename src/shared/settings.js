@@ -52,6 +52,8 @@ const RUNWIELD_CUSTOM_SETTING_KEYS = [
     "guidedReview",
     "cleanupMergedWorktrees",
     "workflowMetrics",
+    "metricsExport",
+    "metricsExporterApprovals",
     "workRecords",
     "plans",
     "notifications",

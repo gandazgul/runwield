@@ -1,6 +1,7 @@
 /** Durable, content-free Project measurement journal. */
 import { dirname, join } from "@std/path";
 import lockfile from "proper-lockfile";
+import { metricsDeliveryInFlightForJournal } from "./metrics-export-ledger.ts";
 
 interface JournalInvocation {
     enabled: boolean;
@@ -27,6 +28,7 @@ export type JournalResult = {
     historyEpoch?: string;
     collectionEnabledAtCall?: boolean;
     coverageGap?: JournalCoverageGap;
+    deliveryInFlight?: boolean;
 };
 
 interface JournalEpochState {
@@ -254,7 +256,8 @@ interface JournalLock {
 }
 
 /** Appends and clears share the same bounded OS guard and lease lock. */
-async function acquireJournalLock(filePath: string, deadline: number): Promise<JournalLock> {
+async function acquireJournalLock(filePath: string, deadline: number, signal?: AbortSignal): Promise<JournalLock> {
+    if (signal?.aborted) throw new Error("lock_canceled");
     let release: (() => void) | undefined;
     let guard: Deno.FsFile | undefined;
     const lock: JournalLock = {
@@ -275,10 +278,12 @@ async function acquireJournalLock(filePath: string, deadline: number): Promise<J
         // lock for compatibility, but never mutate or release it without this guard.
         guard = Deno.openSync(join(directory, ".journal.guard"), { create: true, read: true, write: true });
         while (!guard.tryLockSync(true)) {
+            if (signal?.aborted) throw new Error("lock_canceled");
             if (Date.now() >= deadline) throw new Error("lock_timeout");
             await new Promise((resolve) => setTimeout(resolve, 20));
         }
         while (!release) {
+            if (signal?.aborted) throw new Error("lock_canceled");
             if (Date.now() >= deadline) throw new Error("lock_timeout");
             try {
                 release = lockfile.lockSync(lockPath, {
@@ -320,6 +325,30 @@ function finishHistoryClear(filePath: string): void {
     removeSynced(intentPath);
 }
 
+/** Run a short authorization under the same guard as append and clear.
+ * The callback must not perform network I/O or acquire an export send lock.
+ */
+export async function withWorkflowMetricJournalLock<T>(
+    filePath: string,
+    run: (historyEpoch: string) => T | Promise<T>,
+    signal?: AbortSignal,
+): Promise<T> {
+    const lock = await acquireJournalLock(filePath, Date.now() + 1000, signal);
+    try {
+        finishHistoryClear(filePath);
+        const state = readJournalState(filePath);
+        repairJournalTail(filePath, state);
+        // A first grant also needs a stable history identity. Otherwise the first
+        // append looks like a post-grant clear and bypasses execution start checks.
+        if (state.historyEpoch === "initial") state.historyEpoch = crypto.randomUUID();
+        replaceSynced(join(dirname(filePath), "state.json"), JSON.stringify(state) + "\n");
+        if (state.recoveryBytes || lock.compromised) throw new Error("journal_unavailable");
+        return await run(state.historyEpoch);
+    } finally {
+        lock.close();
+    }
+}
+
 /** Remove only one Project's measurement history; failure is explicit and retryable. */
 export async function clearWorkflowMetricJournal(filePath: string): Promise<JournalResult> {
     let lock: JournalLock | undefined;
@@ -332,6 +361,7 @@ export async function clearWorkflowMetricJournal(filePath: string): Promise<Jour
             replaceSynced(join(dirname(filePath), "state.json"), JSON.stringify(previous) + "\n");
             return { persisted: false, reason: "recovery_pending" };
         }
+        const deliveryInFlight = await metricsDeliveryInFlightForJournal(filePath).catch(() => true);
         const historyEpoch = crypto.randomUUID();
         const historyStartedAt = new Date().toISOString();
         const marker = JSON.stringify({
@@ -353,7 +383,7 @@ export async function clearWorkflowMetricJournal(filePath: string): Promise<Jour
         // Intent fences readers and stale writers even if truncation is interrupted.
         replaceSynced(join(dirname(filePath), "clear.json"), JSON.stringify({ state, marker }));
         finishHistoryClear(filePath);
-        return { persisted: true, historyEpoch };
+        return { persisted: true, historyEpoch, deliveryInFlight };
     } catch (error) {
         return {
             persisted: false,

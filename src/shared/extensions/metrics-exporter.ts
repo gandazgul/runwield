@@ -1,6 +1,7 @@
 /** Host-approved metrics exporter inventory. This module never imports package code. */
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { isAbsolute, join, relative } from "@std/path";
+import { withExportConfigurationLock } from "../workflow/metrics-export-storage.ts";
 import { getCwd } from "../../constants.js";
 import type { PackagePromptResourceOptions } from "../package-resources.ts";
 import { getCustomSetting, getSettingsDir, getSettingsManager, setCustomSetting } from "../settings.js";
@@ -85,6 +86,7 @@ export async function listInstalledMetricsExporters(
     options: PackagePromptResourceOptions = {},
 ): Promise<InstalledMetricsExporter[]> {
     const settings = options.settingsManager || getSettingsManager(options.cwd);
+    if (!options.settingsManager) await settings.reload();
     const remote = remotePersonalResourcesActive();
     const roots = personalPackageRoots();
     // No resolve(): Project packages must never replace the user's exporter.
@@ -140,28 +142,50 @@ export async function resolveApprovedMetricsExporters(
     return (await listInstalledMetricsExporters(options)).filter((exporter) => exporter.approved);
 }
 
-export async function approveMetricsExporter(exporter: InstalledMetricsExporter): Promise<void> {
-    const record: MetricsExporterApproval = {
-        id: exporter.id,
-        source: exporter.source,
-        installedPath: exporter.installedPath,
-        version: exporter.version,
-        approvedAt: new Date().toISOString(),
-    };
-    await setCustomSetting(APPROVAL_KEY, [
-        ...approvals().filter((saved) => !(saved.source === record.source && saved.id === record.id)),
-        record,
-    ], "global");
-    if (!approvals().some((saved) => sameIdentity(saved, exporter))) {
-        throw new Error(`Approval for metrics exporter ${exporter.id} was not saved`);
+/** Short final identity check. The export configuration lock serializes approval edits. */
+export function metricsExporterStillApproved(exporter: InstalledMetricsExporter): boolean {
+    if (!approvals().some((saved) => sameIdentity(saved, exporter))) return false;
+    const packages: Array<string | { source: string }> = getCustomSetting("packages", "global") ?? [];
+    if (!packages.some((pkg) => (typeof pkg === "string" ? pkg : pkg.source) === exporter.source)) return false;
+    try {
+        if (isAbsolute(exporter.source) && Deno.realPathSync(exporter.source) !== exporter.installedPath) return false;
+        const manifest = JSON.parse(Deno.readTextFileSync(join(exporter.installedPath, "package.json")));
+        const declaration = manifest?.wld?.metricsExporter;
+        return declaration?.contract === 1 && declaration.id === exporter.id &&
+            (typeof manifest.version === "string" ? manifest.version : "") === exporter.version &&
+            typeof declaration.entry === "string" &&
+            Deno.realPathSync(join(exporter.installedPath, declaration.entry)) === exporter.entryPath;
+    } catch {
+        return false;
     }
 }
 
+export async function approveMetricsExporter(exporter: InstalledMetricsExporter): Promise<void> {
+    await withExportConfigurationLock(async () => {
+        const record: MetricsExporterApproval = {
+            id: exporter.id,
+            source: exporter.source,
+            installedPath: exporter.installedPath,
+            version: exporter.version,
+            approvedAt: new Date().toISOString(),
+        };
+        await setCustomSetting(APPROVAL_KEY, [
+            ...approvals().filter((saved) => !(saved.source === record.source && saved.id === record.id)),
+            record,
+        ], "global");
+        if (!approvals().some((saved) => sameIdentity(saved, exporter))) {
+            throw new Error(`Approval for metrics exporter ${exporter.id} was not saved`);
+        }
+    });
+}
+
 export async function removeMetricsExporterApprovals(source: string): Promise<void> {
-    const saved = approvals();
-    if (!saved.some((record) => record.source === source)) return;
-    await setCustomSetting(APPROVAL_KEY, saved.filter((record) => record.source !== source), "global");
-    if (approvals().some((record) => record.source === source)) {
-        throw new Error("Exporter approval removal was not saved");
-    }
+    await withExportConfigurationLock(async () => {
+        const saved = approvals();
+        if (!saved.some((record) => record.source === source)) return;
+        await setCustomSetting(APPROVAL_KEY, saved.filter((record) => record.source !== source), "global");
+        if (approvals().some((record) => record.source === source)) {
+            throw new Error("Exporter approval removal was not saved");
+        }
+    });
 }

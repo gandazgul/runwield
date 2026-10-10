@@ -78,8 +78,34 @@ charge, invoice, complete activity history
 
 **Metrics exporter**: An optional, destination-specific package entry point that receives approved Core observations.
 Core owns its host-global approval and binds it to its installed identity: exporter ID, configured user-scope source,
-real installed path, and version. Approval permits entry resolution, not Session extension loading. Export delivery
-remains target behavior. _Avoid_: model Provider, Pi Agent extension, RunWield Connect plugin
+real installed path, and version. Core dispatches one immutable, content-free observation under a separate Export grant.
+The package handles transport, not permission, retries, or journal access. It is not loaded as a Session extension.
+_Avoid_: model Provider, Pi Agent extension, RunWield Connect plugin
+
+**Export grant**: Saved host-global permission to send future eligible observations to one approved exporter identity,
+endpoint, and external project from an explicit Project allowlist. Each Project has its own journal start position.
+Credentials are separate. A new endpoint or re-enablement starts new consent; it does not sweep earlier history. See
+[Core export consent](prd/runwield-core-prd.md#export-consent). _Avoid_: collection opt-in, exporter package approval
+
+<a id="delivery-accepted"></a>
+
+**Delivery accepted**: The exporter reports acceptance of an observation. Read-back has not proved its remote presence.
+_Avoid_: confirmed publication, Plan Status
+
+<a id="delivery-confirmed"></a>
+
+**Delivery confirmed**: Exporter read-back proves that the remote observation is present. This does not confirm workflow
+publication. _Avoid_: published Plan, workflow success
+
+<a id="delivery-rejected"></a>
+
+**Delivery rejected**: The destination did not accept an observation. A permanent rejection stays rejected; a correction
+rejection becomes pending only after credentials change. _Avoid_: failed Plan, abandoned workflow
+
+**Delivery unconfirmed**: An exporter delivery state where acceptance is unknown. Core never resends it automatically.
+Read-back can change it to [Delivery confirmed](#delivery-confirmed). It differs from
+[Delivery accepted](#delivery-accepted) and [Delivery rejected](#delivery-rejected). It is not a Plan Status or a
+workflow failure. _Avoid_: retryable send, failed workflow
 
 **Active day**: A reporting-zone calendar day with accepted human input or an explicit user-started continuation,
 recorded through user-initiated execution or command provenance. An open window, automatic repair, or background result
