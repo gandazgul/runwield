@@ -108,11 +108,11 @@ Deno.test("TUI quick fix workflow shows its current CI step without Plan stages 
     } as const;
     const sidebar = new TuiSessionSidebar(() => "quick-fix-session", () => snapshot);
     const projection = tuiSessionSidebarProjection(snapshot);
-    assertEquals(projection.workflow.currentStage?.label, "Tests and CI");
-    assertEquals(projection.workflow.action?.kind, "open_session");
+    assertEquals(projection.workflow.currentStage?.label, "Verification Command");
+    assertEquals(projection.workflow.action, null);
     const workflow = stripAnsi(sidebar.render(34).join("\n"));
     assertStringIncludes(workflow, "QUICK FIX");
-    assertStringIncludes(workflow, "● Tests and CI");
+    assertStringIncludes(workflow, "● Verification Command");
     assertEquals(workflow.includes("Planning"), false);
     assertEquals(workflow.includes("AI review"), false);
     assertEquals(workflow.includes("Answer agent"), false);
@@ -209,8 +209,8 @@ Deno.test("TUI Session Sidebar exposes a keyboard action without changing draft 
             workflowContext: { planName: "needs-answer", liveQuestion: true },
         }),
     );
-    assertEquals(sidebar.currentAction()?.kind, "answer_agent");
-    assertStringIncludes(stripAnsi(sidebar.render(42).join("\n")), "ctrl+enter runs this action");
+    assertEquals(sidebar.currentAction(), null);
+    assertEquals(stripAnsi(sidebar.render(42).join("\n")).includes("ctrl+enter"), false);
 });
 
 Deno.test("TUI Session Sidebar stays at the top of the visible transcript viewport", () => {

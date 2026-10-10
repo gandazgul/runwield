@@ -188,6 +188,17 @@ async function settleValidation(
                 plan.attrs,
                 { expectedRevision: plan.revision, expectedControllerRevision: plan.controllerRevision },
             );
+            const active = args.hostedSession.getActiveExecutionWorkflow();
+            const triageMeta = { ...plan.attrs, validationCheckpoint };
+            if (active) args.hostedSession.setActiveExecutionWorkflow({ ...active, triageMeta });
+            const progress = args.hostedSession.getWorkflowContext?.()?.validationProgress;
+            args.hostedSession.setWorkflowExecutionContext?.({ planName: args.planName, triageMeta });
+            if (progress) {
+                args.hostedSession.replaceWorkflowContext?.({
+                    ...args.hostedSession.getWorkflowContext(),
+                    validationProgress: progress,
+                }, { persist: true });
+            }
             return;
         } catch (error) {
             if (

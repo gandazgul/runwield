@@ -126,6 +126,29 @@ function makeRuntimeHarness(sessionId, queuedMessages = [], workflowContext = nu
     return { runtime, sessionId, interactionAdapters };
 }
 
+Deno.test("TUI redraws when a question opens, resolves, or is canceled", () => {
+    const { runtime, sessionId } = makeRuntimeHarness("question-lifecycle");
+    const { uiAPI } = makeUi();
+    let renders = 0;
+    uiAPI.requestRender = () => renders++;
+    const registration = attachTuiRuntimeAdapter({ runtime, sessionId, uiAPI });
+    try {
+        const before = renders;
+        for (
+            const type of [
+                RuntimeEventTypes.INTERACTION_REQUESTED,
+                RuntimeEventTypes.INTERACTION_RESOLVED,
+                RuntimeEventTypes.INTERACTION_CANCELED,
+            ]
+        ) {
+            runtime.emitSessionEvent(sessionId, { type, interactionId: "question", interactionType: "text" });
+        }
+        assertEquals(renders - before, 3);
+    } finally {
+        registration.dispose();
+    }
+});
+
 Deno.test("TUI adapter does not advertise a Pair form while attached", () => {
     const { runtime, sessionId, interactionAdapters } = makeRuntimeHarness("pair-capability-lifetime");
     const { uiAPI } = makeUi();

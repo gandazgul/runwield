@@ -114,6 +114,22 @@ recap settle, a focused selection at the input area asks what to do next: **Star
 for follow-up. Failed or paused delivery must not offer this successful-completion menu. History replay and an Epic's
 automatic continuation must not interrupt the user with stale completion choices.
 
+**Requirement: Keep the TUI workflow sidebar current through delivery and resume.** The sidebar follows planning,
+clarification, Plan review, implementation, the configured Verification Command, AI review, repair, Code Review,
+publication, and completion. Questions remain in the active prompt. TUI shortcuts name a supported operation to reopen
+review or resume saved work; they do not offer to open the Session that is already displayed. Workspace navigation
+remains available on that surface. A canceled review is paused, never approved, and its continuation reopens review
+without repeating completed checks. A running repair remains the current stage while its failed check remains visible.
+
+Accepted validation progress and the latest settled checkpoint survive panel dismissal and Session reopening. Older
+checkpoints cannot override a newer phase or confirmed completion. Starting another workflow clears the previous
+workflow's progress. Confirmed delivery to the configured target, including the default Plan branch, completes the
+sidebar; any onward merge or PR to main is the owner's responsibility unless another target was configured.
+
+Acceptance: answer and settle a clarification without a sidebar answer shortcut; reopen a saved Plan review without a
+live URL; cancel Code Review and resume it; observe repair return to verification; finish delivery, dismiss the panel,
+and reopen the Session with completion intact. Starting another Plan shows that Plan's current stage.
+
 **Requirement: Agent selection replaces active instructions.** Switching Agents preserves conversation history while
 replacing the model's system instructions and available tools with those of the selected Agent. Earlier Agents' system
 instructions remain historical evidence and must not govern subsequent requests, including after Session resume.
