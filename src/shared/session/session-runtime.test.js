@@ -1624,6 +1624,10 @@ Deno.test("SessionRuntime keeps dormant managed projection separate from runtime
     });
     assertEquals(runtime.getSessionSnapshot(session.id)?.thinkingLevel, "medium");
     assertEquals(runtime.getSessionSnapshot(session.id)?.workflowContext, {
+        liveQuestion: false,
+        livePlanReview: false,
+        liveCodeReview: false,
+        liveReviewUrl: undefined,
         routingIntent: "PLANNED_CHANGE",
         complexity: "LOW",
     });
@@ -2343,6 +2347,10 @@ Deno.test("SessionRuntime snapshots and events keep workflow footer context sepa
 
     const snapshot = runtime.getSessionSnapshot(sessionId);
     assertEquals(snapshot?.workflowContext, {
+        liveQuestion: false,
+        livePlanReview: false,
+        liveCodeReview: false,
+        liveReviewUrl: undefined,
         routingIntent: "PLANNED_CHANGE",
         complexity: "MEDIUM",
         planName: "footer-restoration",
@@ -4353,6 +4361,10 @@ Deno.test("SessionRuntime snapshot derives workflow context from active executio
     });
 
     assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext, {
+        liveQuestion: false,
+        livePlanReview: false,
+        liveCodeReview: false,
+        liveReviewUrl: undefined,
         routingIntent: "PLANNED_CHANGE",
         complexity: "MEDIUM",
         planName: "footer-plan",
@@ -4375,6 +4387,10 @@ Deno.test("SessionRuntime snapshot prefers explicit workflow context over active
     });
 
     assertEquals(runtime.getSessionSnapshot(sessionId)?.workflowContext, {
+        liveQuestion: false,
+        livePlanReview: false,
+        liveCodeReview: false,
+        liveReviewUrl: undefined,
         routingIntent: "PROJECT",
         complexity: "HIGH",
         planName: "explicit-plan",

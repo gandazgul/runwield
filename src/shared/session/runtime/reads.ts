@@ -166,7 +166,7 @@ export class RuntimeReads {
             deriveWorkflowContextFromExecutionWorkflow(activeExecutionWorkflow) || null;
         const activeInteractions = [...session.getActiveInteractions().values()];
         const liveQuestion = activeInteractions.some((record) =>
-            record.request?.type !== "plan_review" && record.request?.type !== "code_review"
+            record.request && record.request.type !== "plan_review" && record.request.type !== "code_review"
         );
         const livePlanReview = activeInteractions.some((record) => record.request?.type === "plan_review");
         const liveCodeReview = activeInteractions.some((record) => record.request?.type === "code_review");
@@ -192,10 +192,10 @@ export class RuntimeReads {
                 ...(typeof activeWorkflowMeta.planId === "string" ? { planId: activeWorkflowMeta.planId } : {}),
                 ...(typeof activeWorkflowMeta.status === "string" ? { status: activeWorkflowMeta.status } : {}),
                 ...(workflowProgressFacts.length ? { progressFacts: workflowProgressFacts } : {}),
-                ...(liveQuestion ? { liveQuestion } : {}),
-                ...(livePlanReview ? { livePlanReview } : {}),
-                ...(liveCodeReview ? { liveCodeReview } : {}),
-                ...(liveReview?.request?.reviewUrl ? { liveReviewUrl: liveReview.request.reviewUrl } : {}),
+                liveQuestion,
+                livePlanReview,
+                liveCodeReview,
+                liveReviewUrl: liveReview?.request?.reviewUrl,
                 ...(baseWorkflowContext.canRun === true || activeWorkflowMeta.status === "ready_for_work"
                     ? { canRun: true }
                     : {}),

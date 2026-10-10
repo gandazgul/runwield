@@ -380,6 +380,9 @@ export function attachTuiRuntimeAdapter({
                 break;
             case RuntimeEventTypes.MODEL_CHANGED:
             case RuntimeEventTypes.THINKING_LEVEL_CHANGED:
+            case RuntimeEventTypes.INTERACTION_REQUESTED:
+            case RuntimeEventTypes.INTERACTION_RESOLVED:
+            case RuntimeEventTypes.INTERACTION_CANCELED:
                 uiAPI.requestRender();
                 break;
             case RuntimeEventTypes.WORKFLOW_CONTEXT_CHANGED:

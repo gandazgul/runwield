@@ -344,6 +344,7 @@ function currentStageIndex(stages: StageDefinition[], rawStates: Map<string, str
 }
 
 function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentationInput): string {
+    if (stage.current && input.hasLiveQuestion) return "The agent needs your answer in the Session before continuing.";
     if (stage.current && input.liveValidationProgress?.outcome === "running" && input.liveValidationProgress.message) {
         return input.liveValidationProgress.message;
     }
@@ -355,11 +356,6 @@ function detailFor(stage: WorkflowPresentationStage, input: WorkflowPresentation
             : item.kind === "registry" && stage.id === "execution"
     );
     if (fact?.failure && clean(fact.message)) return clean(fact.message);
-    if (
-        stage.current && input.hasLiveQuestion &&
-        !(clean(input.intent) === "QUICK_FIX" && input.liveValidationProgress?.stage === "ci" &&
-            input.liveValidationProgress.outcome === "running")
-    ) return "The agent needs your answer in the Session before continuing.";
     if (stage.current && clean(input.degradedMessage)) return clean(input.degradedMessage);
     if (stage.id === "planning" && input.hasPlanReview) {
         return "Review the proposed Plan, then approve it or send feedback.";
@@ -431,11 +427,7 @@ function actionFor(
     _stage: WorkflowPresentationStage,
     input: WorkflowPresentationInput,
 ): WorkflowPresentationAction | null {
-    if (
-        input.hasLiveQuestion &&
-        !(clean(input.intent) === "QUICK_FIX" && input.liveValidationProgress?.stage === "ci" &&
-            input.liveValidationProgress.outcome === "running")
-    ) {
+    if (input.hasLiveQuestion) {
         return {
             kind: "answer_agent",
             label: "Answer agent",

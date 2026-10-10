@@ -98,7 +98,7 @@ Deno.test("TUI quick fix workflow shows its current CI step without Plan stages 
     const snapshot = {
         managed: { generation: 1 },
         busy: true,
-        workflowContext: { routingIntent: "QUICK_FIX", liveQuestion: true },
+        workflowContext: { routingIntent: "QUICK_FIX", liveQuestion: false },
         validationProgress: {
             kind: "mechanical",
             outcome: "running",
@@ -145,6 +145,38 @@ Deno.test("quick fix workflow follows repair and manual QA progress", () => {
         }).workflow.currentStage?.label,
         "Manual QA",
     );
+});
+
+Deno.test("workflow sidebar follows question state independently of running CI", () => {
+    for (const routingIntent of ["QUICK_FIX", "PLANNED_CHANGE"]) {
+        const snapshot = {
+            managed: { generation: 1 },
+            busy: true,
+            workflowContext: { routingIntent, planName: "example", liveQuestion: true },
+            validationProgress: {
+                kind: "workflow",
+                outcome: "running",
+                stage: "ci",
+                checks: { ci: "running", semanticReview: "pending", humanReview: "pending", merge: "pending" },
+            },
+        } as const;
+        const waiting = tuiSessionSidebarProjection(snapshot);
+        assertEquals(waiting.workflow.action?.kind, "answer_agent");
+        assertEquals(
+            waiting.workflow.currentStage?.detail,
+            "The agent needs your answer in the Session before continuing.",
+        );
+        const answered = tuiSessionSidebarProjection({
+            ...snapshot,
+            workflowContext: { ...snapshot.workflowContext, liveQuestion: false },
+        });
+        assertEquals(answered.workflow.currentStage?.id, "mechanical");
+        assertEquals(answered.workflow.action?.kind, "open_session");
+        assertEquals(
+            answered.workflow.currentStage?.detail,
+            "Run the required tests, lint, type checks, and CI validation.",
+        );
+    }
 });
 
 Deno.test("artifact reader shortcut does not consume the sidebar cycle key or ordinary typing", () => {
