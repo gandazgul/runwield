@@ -29,7 +29,7 @@ export async function runRemoveCommand(argv: string[]): Promise<void> {
         });
 
         const configuredSource = resolveConfiguredUserPackageSource(source, { settingsManager: settings });
-        const success = await packageManager.removeAndPersist(configuredSource);
+        const success = await packageManager.removeAndPersist(source);
         if (!success) {
             console.log(`Package "${source}" is not currently installed — nothing to remove.`);
             return;

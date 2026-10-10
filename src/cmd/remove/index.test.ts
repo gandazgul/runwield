@@ -30,7 +30,7 @@ async function withRemoveCommandFixture(run: (fixture: RemoveCommandFixture) => 
         const previousCwd = Deno.cwd();
         const previousExitCode = Deno.exitCode;
         const fixtureRoot = await Deno.makeTempDir({ prefix: "runwield-remove-command-" });
-        const homeDir = join(fixtureRoot, "home");
+        const homeDir = join(await Deno.realPath(fixtureRoot), "home");
         const packageDir = join(fixtureRoot, "fixture-theme-package");
         const projectRoot = join(fixtureRoot, "project");
         await Promise.all([
@@ -131,6 +131,22 @@ Deno.test("runRemoveCommand unregisters a real local package and resets its acti
         assertEquals(getAvailableThemes().includes("fixture-theme"), false);
         assert((await Deno.stat(join(packageDir, "themes", "fixture-theme.json"))).isFile);
         assertEquals(Deno.exitCode, 0);
+    });
+});
+
+Deno.test("runRemoveCommand removes a cwd-relative local source saved relative to the settings directory", async () => {
+    await withRemoveCommandFixture(async ({ projectRoot }) => {
+        const source = "../fixture-theme-package";
+        await installFixturePackage(projectRoot, source);
+        const settings = getSettingsManager(projectRoot);
+        await settings.flush();
+        assertEquals(settings.getGlobalSettings().packages, ["../../fixture-theme-package"]);
+
+        const output = await captureConsole(() => runRemoveCommand([source]));
+
+        assertEquals(output.errors, []);
+        assertEquals(output.logs, [`Successfully removed ${source}`]);
+        assertEquals(settings.getGlobalSettings().packages, []);
     });
 });
 

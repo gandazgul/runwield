@@ -30,7 +30,7 @@ dependencies:
     - "05-workspace-usage-page"
 userVerifiedAt: null
 targetBranch: "epic/reliable-usage-dashboard-and-langfuse-export"
-status: "implemented"
+status: "reviewed"
 ---
 
 # Package Executable Approval and Metrics-Exporter Kind
