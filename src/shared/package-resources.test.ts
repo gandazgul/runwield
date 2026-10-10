@@ -1,4 +1,5 @@
 import { assertEquals } from "@std/assert";
+import type { ResolvedPaths } from "./package-resources.ts";
 import {
     countPackageResourcesForSource,
     filterEnabledPackagePrompts,
@@ -6,36 +7,35 @@ import {
 } from "./package-resources.ts";
 
 Deno.test("filterEnabledPackagePrompts returns enabled package prompts only", () => {
-    const resources = filterEnabledPackagePrompts(
-        /** @type {any} */ ({
-            themes: [],
-            extensions: [],
-            skills: [],
-            prompts: [
-                {
-                    path: "/pkg/prompts/explain.md",
-                    enabled: true,
-                    metadata: { source: "npm:x", scope: "user", origin: "package" },
-                },
-                {
-                    path: "/pkg/prompts/off.md",
-                    enabled: false,
-                    metadata: { source: "npm:x", scope: "user", origin: "package" },
-                },
-                {
-                    path: "/home/.wld/prompts/local.md",
-                    enabled: true,
-                    metadata: { source: "local", scope: "user", origin: "top-level" },
-                },
-            ],
-        }),
-    );
+    const resolved: ResolvedPaths = {
+        themes: [],
+        extensions: [],
+        skills: [],
+        prompts: [
+            {
+                path: "/pkg/prompts/explain.md",
+                enabled: true,
+                metadata: { source: "npm:x", scope: "user", origin: "package" },
+            },
+            {
+                path: "/pkg/prompts/off.md",
+                enabled: false,
+                metadata: { source: "npm:x", scope: "user", origin: "package" },
+            },
+            {
+                path: "/home/.wld/prompts/local.md",
+                enabled: true,
+                metadata: { source: "local", scope: "user", origin: "top-level" },
+            },
+        ],
+    };
+    const resources = filterEnabledPackagePrompts(resolved);
 
     assertEquals(getPackagePromptTemplatePaths(resources), ["/pkg/prompts/explain.md"]);
 });
 
 Deno.test("countPackageResourcesForSource separates package resource types", () => {
-    const resolved = {
+    const resolved: ResolvedPaths = {
         themes: [{
             path: "/pkg/themes/a.json",
             enabled: true,
@@ -65,7 +65,7 @@ Deno.test("countPackageResourcesForSource separates package resource types", () 
         }],
     };
 
-    assertEquals(countPackageResourcesForSource(/** @type {any} */ (resolved), "npm:x"), {
+    assertEquals(countPackageResourcesForSource(resolved, "npm:x"), {
         themes: 1,
         prompts: 1,
         extensions: 1,
