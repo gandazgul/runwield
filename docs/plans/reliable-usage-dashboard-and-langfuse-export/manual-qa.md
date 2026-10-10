@@ -89,3 +89,20 @@ Manual verification steps for reliable-usage-dashboard-and-langfuse-export/05-wo
       export controls.
 
 <!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/05-workspace-usage-page" -->
+
+<!-- runwield:manual-qa:start child="reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind" -->
+
+## Package Executable Approval and Metrics-Exporter Kind
+
+Manual verification steps for
+reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind
+
+- [ ] Use a disposable HOME and a trusted local fixture. Install it and decline both prompts; check that the settings
+      file keeps extensions disabled and has no exporter approval.
+- [ ] Start a fresh Session after refusal. Check that the extension marker does not appear and that the fixture theme
+      and prompt remain available.
+- [ ] Install the fixture again and accept both prompts. Check the command output and settings file for the saved
+      extension choice and exporter approval.
+- [ ] Start a fresh Session after approval. Check that the approved extension loads.
+
+<!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind" -->

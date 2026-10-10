@@ -1119,6 +1119,13 @@ executable extensions. Public configuration is in the [theme reference](../user-
   Sessions.
 - When a saved theme becomes invalid, the built-in fallback remains usable without activating unrelated executable
   extensions.
+- Given a newly installed package with compatible extensions, when the consent prompt opens, the saved registration
+  already has `extensions: []`. Refusal, EOF, a prompt error, or an interrupted install keeps executable code disabled
+  while themes and prompts remain available.
+- Given acceptance of that prompt, the saved filter enables exactly the compatible candidates before success is
+  reported, and a later Session loads them. A failed settings save reports failure instead of enabled code.
+- Given an existing registration, reinstalling through an equivalent relative or absolute path preserves its enabled,
+  disabled, and filtered choices, unrelated packages, and other settings without another code-extension prompt.
 
 <a id="61-current"></a>
 <a id="62-future--open"></a>
@@ -1487,6 +1494,37 @@ direct trusted-host access, not a copy or a confinement boundary. A normal conne
 **Current bounded acceptance scenario:** Given a personal Skill file and a remote project `.wld`, when the personal file
 changes through the mount, the laptop sees it; a laptop edit is also visible through the mount, while project `.wld`
 remains on the server. This does not establish an ordinary remote Session's resource precedence.
+
+<a id="metrics-exporter-approval"></a>
+
+**Requirement: Resolve metrics exporter entries only after saved host approval.**
+
+Current Core package discovery recognizes the top-level `wld.metricsExporter` declaration with contract `1`, a non-empty
+ID, and a relative entry that stays inside the real installed package path. The entry cannot also be a Pi extension
+resource. Core lists only user-scope installed exporters and their approval state; it resolves approved entries without
+importing code. Session startup never loads an exporter entry through the Pi extension path.
+
+`wld install` asks a separate default-no exporter approval question for any new or existing unapproved exporter. Only
+`y` or `yes` saves approval. Core confirms the saved record before reporting approval. Host-global approval binds the
+exporter ID, configured user source, real installed path, and package version; Project settings cannot grant it or
+replace the approved package. `wld remove` deletes that source's approvals. Approval is not a sandbox and does not
+control npm lifecycle scripts. Export delivery remains target behavior.
+
+**Acceptance scenarios:**
+
+- Given a valid installed exporter, before approval Core lists it as unapproved and resolves no executable entry.
+  Refusal, empty input, EOF, a prompt error, or interruption before the approval write keeps it unapproved.
+- Given exporter approval, Core re-reads the saved global record and resolves the matching entry. Approving code
+  extensions does not approve an exporter; approving an exporter does not enable code extensions.
+- Given a Project package with the same identity or a Project approval record, the user's exporter resolution and
+  approval remain unchanged. An exporter-only package in an auto-discovered `extensions/` directory contributes no
+  Session extension and has an invalid exporter declaration.
+- Given a change to ID, source, real installed path, or version, Core reports the exporter unapproved without a settings
+  write. Reinstalling asks again. Local file edits without a version change keep approval.
+- Given removal, the source's approvals are deleted, other approvals remain, and a later reinstall asks again.
+
+Package update trust policy and reconciliation of historical code-extension consent remain deferred. Existing
+unrestricted or filtered code-extension registrations are preserved, not relabeled as historical consent.
 
 **Requirement: Respect user customization while retaining workflow capabilities.**
 
@@ -2212,6 +2250,9 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 linked execution, usage, command, and workflow-outcome records. The journal writer implements bounded cross-process
 locking, sync, epoch control, and repair. Core reporting and history deletion are available. Workspace dashboards and
 export (including Langfuse) remain target/deferred.
+
+Installed exporter discovery and [saved host approval](#metrics-exporter-approval) are current behavior. Export delivery
+and destination integrations remain target behavior.
 
 **Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
 sensitive content leakage.**
