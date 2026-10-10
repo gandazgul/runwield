@@ -106,3 +106,22 @@ reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-
 - [ ] Start a fresh Session after approval. Check that the approved extension loads.
 
 <!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind" -->
+
+<!-- runwield:manual-qa:start child="reliable-usage-dashboard-and-langfuse-export/07-core-export-coordination-and-delivery-states" -->
+
+## Core Export Coordination and Delivery States
+
+Manual verification steps for
+reliable-usage-dashboard-and-langfuse-export/07-core-export-coordination-and-delivery-states
+
+- [ ] Approve an exporter, grant one Project, and confirm only new eligible events from that Project reach the
+      destination.
+- [ ] Confirm destination status shows accepted and confirmed items, and does not show credentials or observation
+      content.
+- [ ] Make the destination accept a request but drop the response; confirm the item becomes unconfirmed, is not sent
+      again, and later items still send.
+- [ ] Clear a Project while a request is in flight; confirm the clear result reports the in-flight delivery and the
+      cleared measurements do not return.
+- [ ] Cause the exporter to hang or exit; confirm local recording and the host process continue.
+
+<!-- runwield:manual-qa:end child="reliable-usage-dashboard-and-langfuse-export/07-core-export-coordination-and-delivery-states" -->

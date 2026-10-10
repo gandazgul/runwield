@@ -106,10 +106,14 @@ Boundaries with evidence, not an allowlist. Verify the real footprint during imp
 - Destination configuration shows endpoint and external project identity, with HTTPS enforced and an explicit local
   development exception surfaced as such.
 - Approved Projects are listed, and a new Project is visibly not included by default.
+- The owner can create, update, and revoke a destination grant and add or remove Projects. Each action calls child 07's
+  Core grant functions (`metrics-export-grants.ts`); the browser computes no grant, start position, or eligibility.
 - Credentials display only as configured or not configured; no secret value appears in a response payload, browser
   storage, rendered markup, log, or diagnostic.
-- A credential entered through the browser goes through an authenticated same-origin mutation route and returns only
-  configured/not-configured state.
+- A credential entered through the browser goes through an authenticated same-origin mutation route that writes child
+  07's Core credentials file (`~/.wld/metrics-export/credentials.json`, mode `0600`), never `settings.json`, and returns
+  only configured/not-configured state.
+- Delivery status comes from child 07's `readMetricsExportStatus()` and adds **Confirmed** to the states shown.
 - Delivery status shows accepted, pending, unconfirmed, and rejected counts with their reasons, and unconfirmed is
   explained as an exporter status rather than a workflow failure.
 - Browser Project removal is explained as restricting browser access only, distinctly from revoking a separate export

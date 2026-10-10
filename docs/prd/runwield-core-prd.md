@@ -1495,7 +1495,7 @@ direct trusted-host access, not a copy or a confinement boundary. A normal conne
 changes through the mount, the laptop sees it; a laptop edit is also visible through the mount, while project `.wld`
 remains on the server. This does not establish an ordinary remote Session's resource precedence.
 
-<a id="metrics-exporter-approval"></a>
+#### Metrics exporter approval
 
 **Requirement: Resolve metrics exporter entries only after saved host approval.**
 
@@ -1508,7 +1508,7 @@ importing code. Session startup never loads an exporter entry through the Pi ext
 `y` or `yes` saves approval. Core confirms the saved record before reporting approval. Host-global approval binds the
 exporter ID, configured user source, real installed path, and package version; Project settings cannot grant it or
 replace the approved package. `wld remove` deletes that source's approvals. Approval is not a sandbox and does not
-control npm lifecycle scripts. Export delivery remains target behavior.
+control npm lifecycle scripts. Core delivery requires a separate [Export grant](#usage-measurement-and-export).
 
 **Acceptance scenarios:**
 
@@ -2248,11 +2248,11 @@ retain delivery evidence. Scenarios guide verification but do not claim executab
 
 **Scope and maturity:** Current local recording is opt-in and stays on the device. The v2 observation layer includes
 linked execution, usage, command, and workflow-outcome records. The journal writer implements bounded cross-process
-locking, sync, epoch control, and repair. Core reporting and history deletion are available. Workspace dashboards and
-export (including Langfuse) remain target/deferred.
+locking, sync, epoch control, and repair. Core reporting, history deletion, exporter approval, and export coordination
+are current. Workspace dashboards, browser export controls, and the Langfuse destination remain target behavior.
 
-Installed exporter discovery and [saved host approval](#metrics-exporter-approval) are current behavior. Export delivery
-and destination integrations remain target behavior.
+Installed exporter discovery and [saved host approval](#metrics-exporter-approval) are separate from destination
+consent. Core functions manage Export grants; this capability has no command-line setup flow.
 
 **Requirement: Record structured workflow observations locally with explicit opt-in, project isolation, and zero
 sensitive content leakage.**
@@ -2367,7 +2367,8 @@ measurement rows, including legacy rows. It preserves Sessions, Plans, worktrees
 Clear shares the writer lock, commits a fresh History epoch, and resets journal offsets and deduplication state. A
 durable clear intent prevents crash recovery from exposing old rows. Delayed observations captured in an older epoch are
 rejected across processes. Restart, cache rebuild, and legacy readers cannot restore deleted history. New activity
-records normally after clear. Export payload deletion and delivery fences remain target for export coordination.
+records normally after clear. Export reads pending payloads only from the journal. Clear preserves content-free delivery
+fences and reports an already authorized delivery that cannot be recalled.
 
 **Acceptance scenarios:**
 
@@ -2442,6 +2443,96 @@ records normally after clear. Export payload deletion and delivery fences remain
   only the incomplete tail is removed, and an explicit `measurement_gap` records the lost bytes.
 - Given corrupt interior lines, when repair runs, those lines remain and gap evidence surfaces their line numbers;
   successful persistence of a later observation does not claim complete historical coverage.
+
+#### Export consent
+
+**Requirement: Export only under explicit destination consent.** An Export grant binds an approved installed exporter
+identity, endpoint, external project, and explicit allowlist of primary Projects. Project settings cannot grant export.
+Each Project starts at its journal byte position when added. An execution that started before that position is never
+exported, even if it finishes later. Rows without an execution start at their own position. A new history after clear
+starts at zero. Endpoint or external-project changes and re-enablement create new consent and start positions. HTTPS is
+required except explicit permission for loopback HTTP. Credentials rotation preserves consent and fences.
+
+**Acceptance scenarios:**
+
+- Given no installed approved exporter, no grant, or an empty allowlist, a cycle sends nothing.
+- Given an execution started before consent and finished afterward, none of its observations are sent. A new execution
+  in a granted Project is sent; an unlisted Project is not sent. Adding a Project starts only its future history.
+- Given a new endpoint, external project, or re-enablement, old pending history is not swept into the new grant.
+- Given a non-loopback HTTP endpoint, Core refuses consent. Loopback HTTP also requires explicit permission.
+- Given a changed installed identity, the old grant authorizes nothing, even if the new package has been approved.
+
+<a id="export-delivery-lifecycle"></a>
+
+**Requirement: Core owns delivery authorization and lifecycle.** The TUI and owner Workspace host run export at startup
+and every 60 seconds, independent of cwd, open Sessions, Workspace registration, or browser access. Remote personal
+resource hosts do not start it. Core takes a non-blocking destination OS lock, then the configuration lock and journal
+guard. Grant and exporter-approval edits share the configuration lock. Under the guard Core checks current consent,
+installed approval, and history, and syncs the send intent before I/O. It releases the guard before dispatch. Pending
+payloads exist only in journals; a cursor retains scan positions and eligible open executions. A content-free ledger
+retains durable intents and outcomes across host restarts.
+
+**Acceptance scenarios:**
+
+- Given an unregistered granted Project B while cwd is Project A, a cycle sends B's eligible rows.
+- Given two simultaneous hosts, each observation reaches the destination once. Every request has a durable prior intent.
+- Given a dead send holder, the next holder marks unsettled intents unconfirmed with `process_lost`, without replay.
+
+<a id="export-delivery-states"></a>
+
+**Requirement: Export states preserve acceptance uncertainty.** Accepted means transport reports acceptance; Confirmed
+means bounded read-back proves remote presence. Unconfirmed means acceptance is unknown and automatic resend is
+forbidden. Retryable non-acceptance returns to Pending with capped backoff, at most one hour. Permanent non-acceptance
+stays Rejected. Needs-correction rejection resumes only after credentials change. Later rows do not wait for backoff or
+Unconfirmed rows. Optional confirmation checks Accepted and Unconfirmed items at most three times over successive
+cycles. Not-found-yet or mismatch never changes an item to Pending or Rejected. Status shows
+current-grant/current-history counts, approval, credential configuration, sanitized codes, and last attempt time,
+without observation content. Local reporting remains independent of these remote delivery states.
+
+**Acceptance scenarios:**
+
+- Given a lost response after remote acceptance, later cycles and restart never send the observation again.
+- Given a 503, later rows proceed while that item waits. A permanent rejection stays Rejected; a correction rejection
+  becomes Pending only when the credentials revision changes.
+- Given read-back presence, Accepted or Unconfirmed becomes Confirmed. Three unsuccessful checks leave it unchanged.
+
+<a id="export-failure-isolation"></a>
+
+**Requirement: Exporter failures cannot stop local work.** Core gives trusted approved exporter code one immutable
+contract-1 observation, transport credentials, destination context, and a deadline. References are host-keyed hashes,
+not raw local IDs. Only model usage, finished executions, finished tool calls, validation attempts, finished repair
+rounds, confirmed publication, and abandoned-workflow observations are exported. Legacy rows, context, command, tool
+exposure, latency samples, paths, names, prompts, and free text are excluded. Each call runs in a Worker, stopped at 30
+seconds. Throws, malformed results, hangs, and worker exits become Unconfirmed. Shutdown terminates calls and waits at
+most about two seconds without holding a Session writer lock. This is failure isolation, not a security sandbox.
+
+**Acceptance scenarios:**
+
+- Given an exporter throw, hang, or `Deno.exit`, the host continues and records new local observations.
+- Given captured payloads, every reference is opaque and no path, Plan name, prompt, or raw local ID appears.
+
+<a id="export-clear-and-revoke"></a>
+
+**Requirement: Clear and revoke stop future authorization without recalling prior sends.** Clear serializes with export
+authorization under the journal guard. It removes pending payloads and changes the history epoch, but keeps ledger
+fences. A previously authorized delivery can settle afterward without restoring measurements. Revoke removes consent;
+both operations report whether a delivery was already in flight. Re-enabling starts at new Project positions.
+
+**Acceptance scenarios:**
+
+- Given clear before authorization, no cleared row is sent. Given an already authorized request during clear, the result
+  reports in-flight delivery and its later settlement restores no local rows.
+- Given revoke during a request, the result reports in-flight delivery, and no later row is authorized.
+
+<a id="export-credentials"></a>
+
+**Requirement: Keep export secrets out of settings and measurement state.** Credentials live only in Core's
+`~/.wld/metrics-export/credentials.json`, with owner-only file mode `0600` inside a `0700` directory. A separate `0600`
+`host.json` retains the host reference key and owner identity across restarts. Settings, status, logs, errors, and
+ledgers contain no credential value. Status reports only whether credentials are configured.
+
+**Acceptance scenario:** Given configured credentials and a delivery, authentication receives the credentials, while
+settings, status, ledger, and observation contain none. Credentials and host identity files have owner-only modes.
 
 <a id="4-current-local-workspace-surface"></a>
 <a id="5-current-collaborative-planning-surface"></a>

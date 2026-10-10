@@ -123,9 +123,10 @@ Deno.test("a Plan review reference survives a writer process crash before settle
         store.recordLastPlanReview(proof, {
             planId: "crash-plan-id", planName: "crash-plan", planningAgentName: "planner",
         });
-        Deno.writeTextFileSync(${JSON.stringify(readyPath)}, JSON.stringify({
+        Deno.writeTextFileSync(${JSON.stringify(`${readyPath}.tmp`)}, JSON.stringify({
             sessionId: session.runwieldSessionId, projectId: project.projectId,
         }));
+        Deno.renameSync(${JSON.stringify(`${readyPath}.tmp`)}, ${JSON.stringify(readyPath)});
         setInterval(() => {}, 1000);
     `;
     const worker = new Deno.Command(Deno.execPath(), {
