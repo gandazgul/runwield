@@ -238,7 +238,7 @@ Deno.test("runValidationPhase reviews the proposed branch patch from validated_c
     };
     const { projectRoot, hostedSession } = await makeValidatedCiRun({ complexity: "MEDIUM" });
     const reviewPrompts = /** @type {string[]} */ ([]);
-    assertObjectMatch(hostedSession.getWorkflowContext(), expectedWorkflowContext);
+    assertObjectMatch(hostedSession.getWorkflowContext() || {}, expectedWorkflowContext);
 
     await runValidationPhase({
         hostedSession,
@@ -257,7 +257,7 @@ Deno.test("runValidationPhase reviews the proposed branch patch from validated_c
     assertEquals(reviewPrompts.length, 1);
     assertStringIncludes(reviewPrompts[0], "workflow.js");
     assertEquals(reviewPrompts[0].includes("+scoped workflow change"), false);
-    assertObjectMatch(hostedSession.getWorkflowContext(), expectedWorkflowContext);
+    assertObjectMatch(hostedSession.getWorkflowContext() || {}, expectedWorkflowContext);
     assertEquals(plan?.attrs.status, "reviewed");
 });
 
@@ -700,12 +700,12 @@ Deno.test("runValidationPhase dispatches semantic review feedback to Reviewer-Fe
     );
     assertEquals(sessions[0].userRequest.includes('classification: "QUICK_FIX"'), false);
     assertEquals(reviewerWorkflowContexts.length, 1);
-    assertObjectMatch(reviewerWorkflowContexts[0], expectedWorkflowContext);
+    assertObjectMatch(reviewerWorkflowContexts[0] || {}, expectedWorkflowContext);
     assertEquals(reviewerWorkflowContexts[0]?.validationProgress?.stage, "semantic_review");
     assertEquals(repairWorkflowContexts, []);
     assertEquals(repairActiveOwners, []);
     assertEquals(repairActivePlanNames, []);
-    assertObjectMatch(hostedSession.getWorkflowContext(), expectedWorkflowContext);
+    assertObjectMatch(hostedSession.getWorkflowContext() || {}, expectedWorkflowContext);
     assertEquals(hostedSession.getWorkflowContext()?.validationProgress?.stage, "engineer_repair");
     assertEquals(hostedSession.getActiveExecutionWorkflow()?.executionAgent, "frontend-engineer");
     assertEquals(plan?.attrs.status, "implemented");
