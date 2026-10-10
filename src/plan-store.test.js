@@ -55,7 +55,7 @@ import {
     COLLABORATION_LOCK_BYPASS,
     COLLABORATION_STATE_REMOTE_CANONICAL,
     SharedPlanLockError,
-} from "./shared/collaboration/lock.js";
+} from "./shared/collaboration/lock.ts";
 
 /**
  * @param {string} name

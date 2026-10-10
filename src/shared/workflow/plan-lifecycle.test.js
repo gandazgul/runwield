@@ -10,7 +10,7 @@ import {
     stageValidationPassedInExecutionWorktree,
 } from "./plan-lifecycle.js";
 import { injectFrontMatter, loadPlan, savePlan, updatePlanFrontMatter } from "../../plan-store.js";
-import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.js";
+import { COLLABORATION_STATE_REMOTE_CANONICAL, SharedPlanLockError } from "../collaboration/lock.ts";
 
 /**
  * @param {string} cwd

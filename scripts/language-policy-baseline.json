@@ -9,7 +9,6 @@
     "src/extensions/snip/index.js",
     "src/plan-store.js",
     "src/shared/collaboration/client.js",
-    "src/shared/collaboration/lock.js",
     "src/shared/collaboration/protocol.js",
     "src/shared/collaboration/secrets.js",
     "src/shared/extensions/wld-extension-manifest.js",
