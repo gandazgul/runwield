@@ -76,7 +76,6 @@
     "src/ui/tui/runtime-adapter.js",
     "src/ui/tui/runtime-interaction-adapter.js",
     "src/ui/tui/testing/child-protocol.js",
-    "src/ui/tui/testing/coverage-matrix.js",
     "src/ui/tui/testing/isolated-environment.js",
     "src/ui/tui/testing/mod.js",
     "src/ui/tui/testing/portfolio-assertions.js",

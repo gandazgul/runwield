@@ -10,7 +10,7 @@ export {
     collectGoldenScenarioCoverage,
     GOLDEN_TUI_REQUIRED_CAPABILITIES,
     GOLDEN_TUI_REQUIRED_CAPABILITY_IDS,
-} from "./coverage-matrix.js";
+} from "./coverage-matrix.ts";
 export {
     assertValidationBranchEvidence,
     assertValidationBranchInventory,
