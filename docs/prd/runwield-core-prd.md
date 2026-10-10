@@ -657,6 +657,21 @@ reviews and when automatic browser opening is unavailable. The settled card remo
 automatic review **AI Code Review**, the user's review **Code Review**, and separate manual exercise of the result
 **User verification**; one does not imply the other.
 
+**Requirement: Show verification progress once and reserve answer prompts for waiting questions.** The verification card
+labels the configured check **Verification Command**, with running, failed, or done status, and labels integration
+**Merge worktree**. Its active status appears only once when also present in the check summary. The sidebar derives
+**Answer agent** and its question detail from current pending interactions. Answering or canceling a question updates
+the sidebar immediately, regardless of workflow stage. Cancellable operations without a user prompt are not questions.
+
+**Acceptance scenarios:**
+
+- Given running, failed, or successful verification, the card shows one **Verification Command** status and retains the
+  other applicable review and merge checks.
+- Given a pending question, the sidebar offers **Answer agent**. Answering on either surface or canceling it removes
+  that action and detail immediately, without waiting for CI or another workflow transition. A new question restores it.
+- Given a running shell command without a user prompt, the sidebar shows workflow progress without claiming the Agent
+  needs an answer.
+
 **Requirement: Keep standalone Plan delivery separate from the onward merge.**
 
 `plans.autoMergeIntoTargetBranch` defaults to off. Project settings override global settings; only literal `true`
@@ -1041,6 +1056,13 @@ findings and inspect repair changes for regressions. Each finding remains identi
 open items visible. Repair reports address every finding; an independent Reviewer verifies fixes rather than accepting
 self-approval.
 
+Discovery rounds also judge whether the change's tests would distinguish a plausible wrong implementation from the right
+one: whether the assertions pin behavior or merely assert the fake, whether the named boundaries are actually exercised,
+and whether a fake, fixture, or double bypasses the product-owned code path. A finding names the concrete wrong
+implementation that would still pass. Execution proof stays with mechanical validation; review never demands evidence
+that a test ran. A repair that resolves a finding by weakening a test — loosening or deleting assertions, dropping a
+boundary case, or substituting a fake for the real behavior — is a repair-introduced regression.
+
 **Requirement: Use one proposed branch patch.**
 
 For Git worktree execution, the full review patch is the difference from the common ancestor of the recorded target
@@ -1124,6 +1146,9 @@ convergence without more escaped defects, not approval rate alone.
   satisfied with evidence and independent review can confirm it without requiring a file edit. The issue keeps its ID.
 - Given only a maintainability preference, when review completes, it remains advisory and cannot become an invented
   implementation obligation.
+- Given a changed test that would still pass with a plausible wrong implementation of the behavior it claims to cover,
+  review reports a concrete blocking finding naming that implementation. Given only weak-but-honest assertions, the
+  observation stays advisory and cannot become a repair obligation.
 - After the automatic-round boundary, when the user chooses human review, feedback leads to repair and checks and
   returns to that human review without an automatic round limit ending it.
 - Given the Code Review offer, when the user chooses Close and come back later, the Plan remains at `reviewed` with no
@@ -1650,9 +1675,10 @@ project `.wld`, home `.wld`, then bundled skills. Pi-discovered, configured, ext
 second catalog.
 
 **Requirement: User-invoked change review is available on install.** The bundled MIT `review` Skill lets a user review
-PRs and other selected changes against project standards and the requested behavior. It is separate from the workflow
-Reviewer, which judges implementation against an Approved Plan. The bundled Skill keeps the portable instructions and
-support files available without a separate install.
+PRs and other selected changes against project standards, the requested behavior, and whether the change's tests would
+catch a plausible wrong implementation. It is separate from the workflow Reviewer, which judges implementation against
+an Approved Plan. The bundled Skill keeps the portable instructions and support files available without a separate
+install.
 
 Slash-command skill invocation injects full Skill instructions only when needed and does not change the Agent profile.
 Prompt Template and Skill expansions reach the active model with the current Agent instructions and tools. The exact
@@ -2073,6 +2099,10 @@ one-way adoption of eligible 0.10 state. Entry adopts eligible legacy state or r
 reason and safe paths. Refusal stops normal writes and preserves user work. After adoption, downgrade or concurrent use
 with 0.10 is not supported. See [ADR-017](../adr/017-project-runtime-state-under-wld-internal.md).
 
+Repeated entry must observe newly tracked runtime paths, newly attached worktrees, and changed runtime files. Bounded
+reads may share verification, and unchanged Git metadata may reuse Git answers, while each new operation still checks
+RunWield-owned runtime state.
+
 **Requirement: Keep Project Runtime State out of repository changes.**
 
 The managed `.gitignore` block contains only `.wld/internal/`. User `.wld/settings.json`, `.wld/agents/`,
@@ -2109,6 +2139,8 @@ Open product questions:
   runtime state stays out of commits and user configuration can be committed.
 - Given runtime state already tracked, staged, deleted, renamed, or present in newly published history, when Core tries
   to checkpoint or publish, it refuses with safe paths and preserves the worktree, index, files, and target refs.
+- Given a successful entry in a long-running process, when a secret is subsequently staged or a worktree is attached,
+  the next entry rejects the tracked secret or recognizes the new checkout without restarting the process.
 - Given a broad `.wld/` ignore rule, when Core reconciles ignore rules, it leaves the rule in place and reports that it
   hides settings, Agents, Skills, and prompts.
 - Given eligible 0.10 runtime state, when Doctor checks the project, it reports pending adoption without locks,
