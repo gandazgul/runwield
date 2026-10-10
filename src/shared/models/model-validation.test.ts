@@ -25,7 +25,7 @@ Deno.test("formatProviderModelReference qualifies active model state exactly onc
 
 Deno.test("resolveTemplateModel returns ok for valid configured model", () => {
     const result = resolveTemplateModel("openai/gpt-4.1", {
-        find: (/** @type {string} */ provider, /** @type {string} */ model) => ({ provider, id: model }),
+        find: (provider, model) => ({ provider, id: model }),
         hasConfiguredAuth: () => true,
     });
 
@@ -43,7 +43,7 @@ Deno.test("resolveTemplateModel fails for unknown model", () => {
 
 Deno.test("resolveTemplateModel fails when auth is missing", () => {
     const result = resolveTemplateModel("openai/gpt-4.1", {
-        find: (/** @type {string} */ provider, /** @type {string} */ model) => ({ provider, id: model }),
+        find: (provider, model) => ({ provider, id: model }),
         hasConfiguredAuth: () => false,
     });
 

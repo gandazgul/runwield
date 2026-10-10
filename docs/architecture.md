@@ -1033,7 +1033,7 @@ dependency guard are what prevent this seam from silently returning.
 | One ordered turn lifecycle and error settlement        | `src/shared/session/session-runtime.test.js`                                        |
 | One Pi text/thinking/tool translation                  | `src/shared/session/session-subscribers.test.js`                                    |
 | Consumer-ready event identity, usage, and tool data    | `src/shared/session/session-runtime-events.test.js`                                 |
-| One shared tool title and semantic-kind implementation | `src/shared/session/tool-event-title.test.js`                                       |
+| One shared tool title and semantic-kind implementation | `src/shared/session/tool-event-title.test.ts`                                       |
 | TUI and ACP consume the same transcript                | `src/ui/tui/runtime-adapter.test.js`, `src/acp/event-mapper.test.js`                |
 | Duplicate TUI adapter attachment fails until disposal  | `src/ui/tui/runtime-adapter.test.js`                                                |
 | Local shell is Runtime-owned                           | `src/shared/session/session-runtime.test.js`, `src/ui/tui/bash-interceptor.test.js` |

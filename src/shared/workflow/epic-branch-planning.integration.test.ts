@@ -6,7 +6,7 @@ import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fix
 import { createSessionRuntime } from "../session/session-runtime.ts";
 import { HostedSession } from "../session/hosted-session.js";
 import { defineGitFixture, git } from "../git-test-fixture.ts";
-import { COLLABORATION_LOCK_BYPASS } from "../collaboration/lock.js";
+import { COLLABORATION_LOCK_BYPASS } from "../collaboration/lock.ts";
 import { listEntries } from "../worktree-registry.js";
 import { createExecutionStartPorts, startActiveExecutionWorkflow } from "./execution-start.ts";
 import { resolveEpicContinuation } from "./epic-continuation.ts";

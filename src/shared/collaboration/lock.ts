@@ -26,27 +26,29 @@ const VALID_BYPASSES = new Set(Object.values(COLLABORATION_LOCK_BYPASS));
 export const SHARED_PLAN_LOCK_REPAIR =
     "Run `wld plans pull`, `wld plans push`, or `wld plans unshare` before editing this shared Plan locally.";
 
-/**
- * @typedef {Object} CollaborationFrontMatter
- * @property {string} [collaborationState]
- * @property {string} [collaborationServerUrl]
- * @property {string} [collaborationSpaceId]
- * @property {number} [collaborationRevision]
- * @property {string} [collaborationBodyHash]
- * @property {string} [collaborationSyncedAt]
- */
+export interface CollaborationFrontMatter {
+    collaborationState?: string;
+    collaborationServerUrl?: string;
+    collaborationSpaceId?: string;
+    collaborationRevision?: number;
+    collaborationBodyHash?: string;
+    collaborationSyncedAt?: string;
+}
 
-/**
- * @typedef {Object} CollaborationWriteOptions
- * @property {symbol} [collaborationLockBypass]
- */
+export interface CollaborationWriteOptions {
+    collaborationLockBypass?: symbol;
+}
+
+export interface SharedPlanLockErrorOptions {
+    reason?: string;
+    repair?: string;
+}
 
 export class SharedPlanLockError extends Error {
-    /**
-     * @param {Partial<CollaborationFrontMatter>} attrs
-     * @param {{ reason?: string, repair?: string }} [options]
-     */
-    constructor(attrs = {}, options = {}) {
+    declare blockedReason: string;
+    declare repair: string;
+    declare collaboration: CollaborationFrontMatter;
+    constructor(attrs: CollaborationFrontMatter = {}, options: SharedPlanLockErrorOptions = {}) {
         super(buildSharedPlanLockMessage(attrs, options.reason));
         this.name = "SharedPlanLockError";
         this.blockedReason = this.message;
@@ -55,11 +57,7 @@ export class SharedPlanLockError extends Error {
     }
 }
 
-/**
- * @param {Partial<CollaborationFrontMatter>} attrs
- * @returns {Partial<CollaborationFrontMatter>}
- */
-function redactCollaborationMetadata(attrs) {
+function redactCollaborationMetadata(attrs: CollaborationFrontMatter): CollaborationFrontMatter {
     return {
         collaborationState: attrs.collaborationState,
         collaborationServerUrl: typeof attrs.collaborationServerUrl === "string"
@@ -72,31 +70,18 @@ function redactCollaborationMetadata(attrs) {
     };
 }
 
-/**
- * @param {unknown} value
- * @returns {number | undefined}
- */
-export function normalizeCollaborationRevision(value) {
+export function normalizeCollaborationRevision<T>(value: T): number | undefined {
     if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
     if (typeof value === "string" && /^[1-9]\d*$/.test(value.trim())) return Number(value.trim());
     return undefined;
 }
 
-/**
- * @param {unknown} value
- * @returns {string | undefined}
- */
-function normalizeOptionalString(value) {
+function normalizeOptionalString<T>(value: T): string | undefined {
     return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-/**
- * @param {Partial<CollaborationFrontMatter>} attrs
- * @returns {Partial<CollaborationFrontMatter>}
- */
-export function normalizeCollaborationFrontMatter(attrs = {}) {
-    /** @type {Partial<CollaborationFrontMatter>} */
-    const normalized = {};
+export function normalizeCollaborationFrontMatter(attrs: CollaborationFrontMatter = {}): CollaborationFrontMatter {
+    const normalized: CollaborationFrontMatter = {};
     if (attrs.collaborationState === COLLABORATION_STATE_REMOTE_CANONICAL) {
         normalized.collaborationState = COLLABORATION_STATE_REMOTE_CANONICAL;
     } else if (typeof attrs.collaborationState === "string" && attrs.collaborationState.trim()) {
@@ -119,39 +104,22 @@ export function normalizeCollaborationFrontMatter(attrs = {}) {
     return normalized;
 }
 
-/**
- * @param {Partial<CollaborationFrontMatter>} attrs
- * @returns {boolean}
- */
-export function isSharedPlanLocked(attrs = {}) {
+export function isSharedPlanLocked(attrs: CollaborationFrontMatter = {}): boolean {
     return attrs.collaborationState === COLLABORATION_STATE_REMOTE_CANONICAL;
 }
 
-/**
- * @param {unknown} bypass
- * @returns {boolean}
- */
-export function isCollaborationLockBypass(bypass) {
-    return VALID_BYPASSES.has(/** @type {symbol} */ (bypass));
+export function isCollaborationLockBypass<T>(bypass: T): boolean {
+    return VALID_BYPASSES.has(bypass as symbol);
 }
 
-/**
- * @param {Partial<CollaborationFrontMatter>} attrs
- * @returns {string[]}
- */
-function collaborationMetadataProblems(attrs) {
+function collaborationMetadataProblems(attrs: CollaborationFrontMatter): string[] {
     const problems = [];
     if (!normalizeOptionalString(attrs.collaborationServerUrl)) problems.push("missing collaborationServerUrl");
     if (!normalizeOptionalString(attrs.collaborationSpaceId)) problems.push("missing collaborationSpaceId");
     return problems;
 }
 
-/**
- * @param {Partial<CollaborationFrontMatter>} attrs
- * @param {string} [reason]
- * @returns {string}
- */
-export function buildSharedPlanLockMessage(attrs = {}, reason) {
+export function buildSharedPlanLockMessage(attrs: CollaborationFrontMatter = {}, reason?: string): string {
     const server = typeof attrs.collaborationServerUrl === "string"
         ? redactSecrets(attrs.collaborationServerUrl).replace(/#.*$/, "#[redacted]")
         : "unknown server";
@@ -162,11 +130,10 @@ export function buildSharedPlanLockMessage(attrs = {}, reason) {
     return `This shared Plan is remote-canonical (${server}, space ${space}) and cannot be changed by normal RunWield writes.${details} ${SHARED_PLAN_LOCK_REPAIR}`;
 }
 
-/**
- * @param {Partial<CollaborationFrontMatter>} attrs
- * @param {CollaborationWriteOptions} [options]
- */
-export function assertSharedPlanWriteAllowed(attrs = {}, options = {}) {
+export function assertSharedPlanWriteAllowed(
+    attrs: CollaborationFrontMatter = {},
+    options: CollaborationWriteOptions = {},
+): void {
     if (!isSharedPlanLocked(attrs)) return;
     if (isCollaborationLockBypass(options.collaborationLockBypass)) return;
     const problems = collaborationMetadataProblems(attrs);

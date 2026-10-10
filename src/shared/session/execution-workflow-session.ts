@@ -1,25 +1,26 @@
+import type { ActiveExecutionWorkflow } from "../types.js";
+import type { HostedSession, MinimalSessionManagerLike } from "./hosted-session.js";
+
+export interface ExecutionWorkflowSnapshot {
+    version: 1;
+    workflow: ActiveExecutionWorkflow | null;
+}
+
+interface ExecutionWorkflowEntry {
+    type: string;
+    customType?: string;
+    data?: ExecutionWorkflowSnapshot;
+}
+
 /** Durable execution ownership, including an explicit clear tombstone. */
 export const EXECUTION_WORKFLOW_CUSTOM_TYPE = "runwield.execution_workflow";
 
-/**
- * @typedef {Object} ExecutionWorkflowSnapshot
- * @property {1} version
- * @property {import('../types.js').ActiveExecutionWorkflow | null} workflow
- */
-/**
- * @typedef {Object} ExecutionWorkflowEntry
- * @property {string} type
- * @property {string} [customType]
- * @property {ExecutionWorkflowSnapshot} [data]
- */
-/**
- * @param {import('./hosted-session.js').MinimalSessionManagerLike | null} manager
- * @returns {ExecutionWorkflowSnapshot | undefined}
- */
-export function readExecutionWorkflowSnapshot(manager) {
+export function readExecutionWorkflowSnapshot(
+    manager: MinimalSessionManagerLike | null,
+): ExecutionWorkflowSnapshot | undefined {
     const entries = manager?.getBranch?.() || manager?.getEntries?.() || [];
     for (let i = entries.length - 1; i >= 0; i--) {
-        const entry = /** @type {ExecutionWorkflowEntry} */ (entries[i]);
+        const entry = entries[i] as ExecutionWorkflowEntry;
         if (entry.type !== "custom" || entry.customType !== EXECUTION_WORKFLOW_CUSTOM_TYPE) continue;
         // A malformed marker also forbids legacy inference.
         const data = entry.data;
@@ -36,8 +37,8 @@ export function readExecutionWorkflowSnapshot(manager) {
     }
     return undefined;
 }
-/** @param {import('./hosted-session.js').HostedSession} session */
-export function recordExecutionWorkflowSnapshot(session) {
+
+export function recordExecutionWorkflowSnapshot(session: HostedSession): void {
     const manager = session.getRootSessionManager();
     if (!manager) return;
     if (session.getManagedMetadata()) {
@@ -48,11 +49,10 @@ export function recordExecutionWorkflowSnapshot(session) {
     appendExecutionWorkflowSnapshot(manager, session.getActiveExecutionWorkflow());
 }
 
-/**
- * Append to a transcript while its caller owns the Session writer lock.
- * @param {import('./hosted-session.js').MinimalSessionManagerLike} manager
- * @param {import('../types.js').ActiveExecutionWorkflow | null} workflow
- */
-export function appendExecutionWorkflowSnapshot(manager, workflow) {
+/** Append to a transcript while its caller owns the Session writer lock. */
+export function appendExecutionWorkflowSnapshot(
+    manager: MinimalSessionManagerLike,
+    workflow: ActiveExecutionWorkflow | null,
+): void {
     manager.appendCustomEntry?.(EXECUTION_WORKFLOW_CUSTOM_TYPE, { version: 1, workflow });
 }

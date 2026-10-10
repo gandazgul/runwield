@@ -125,9 +125,9 @@ export default defineConfig({
             alias: {
                 "@pierre/diffs/worker/worker.js?worker&inline": resolve(
                     WORKSPACE_DIR,
-                    "react/pierre-diffs-worker-shim.js",
+                    "react/pierre-diffs-worker-shim.ts",
                 ),
-                "@pierre/diffs/worker/worker.js": resolve(WORKSPACE_DIR, "react/pierre-diffs-worker-shim.js"),
+                "@pierre/diffs/worker/worker.js": resolve(WORKSPACE_DIR, "react/pierre-diffs-worker-shim.ts"),
                 "@plannotator/markdown-editor/themes/plannotator.css": resolve(
                     ROOT_DIR,
                     "node_modules/@plannotator/markdown-editor/dist/styles/themes/plannotator.css",

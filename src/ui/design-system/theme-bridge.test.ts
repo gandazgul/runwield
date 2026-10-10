@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { DARK_BROWSER_THEME } from "./themes/dark.ts";
+import type { BrowserThemeColors } from "./themes/dark.ts";
 import { renderRunWieldThemeCss } from "./theme-bridge.ts";
 
 Deno.test("browser theme defaults to the dark RunWield brand", () => {
@@ -43,8 +44,7 @@ Deno.test("another browser token set can replace colors without changing shared 
     assertEquals(renderRunWieldThemeCss(), original);
 });
 
-/** @param {string} hex */
-function luminance(hex) {
+function luminance(hex: string): number {
     const channels = hex.slice(1).match(/../g)?.map((channel) => {
         const value = parseInt(channel, 16) / 255;
         return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
@@ -53,17 +53,14 @@ function luminance(hex) {
     return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 }
 
-/** @typedef {keyof import("./themes/dark.ts").BrowserThemeColors} BrowserColorRole */
-/** @typedef {[BrowserColorRole, BrowserColorRole]} ContrastPair */
+type BrowserColorRole = keyof BrowserThemeColors;
+type ContrastPair = [BrowserColorRole, BrowserColorRole];
 
 Deno.test("browser text and action colors meet AA contrast on their surfaces", () => {
     const colors = DARK_BROWSER_THEME.colors;
-    /** @type {BrowserColorRole[]} */
-    const textRoles = ["--rw-text", "--rw-text-muted", "--rw-text-dim", "--rw-accent", "--rw-error"];
-    /** @type {BrowserColorRole[]} */
-    const surfaces = ["--rw-page-bg", "--rw-surface", "--rw-surface-raised", "--rw-surface-muted"];
-    /** @type {ContrastPair[]} */
-    const pairs = [];
+    const textRoles: BrowserColorRole[] = ["--rw-text", "--rw-text-muted", "--rw-text-dim", "--rw-accent", "--rw-error"];
+    const surfaces: BrowserColorRole[] = ["--rw-page-bg", "--rw-surface", "--rw-surface-raised", "--rw-surface-muted"];
+    const pairs: ContrastPair[] = [];
     for (const text of textRoles) {
         for (const surface of surfaces) pairs.push([text, surface]);
     }

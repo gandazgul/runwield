@@ -2,14 +2,14 @@ import { assert, assertEquals } from "@std/assert";
 import { extractYaml, test as hasFrontMatter } from "@std/front-matter";
 import { join } from "@std/path";
 
+interface AdrFrontMatter {
+    status: string;
+}
+
 const ADR_DIR = "docs/adr";
 const ALLOWED_ADR_STATUSES = new Set(["proposed", "accepted"]);
 
-/**
- * @param {string} dir
- * @returns {AsyncGenerator<string>}
- */
-async function* walkMarkdownFiles(dir) {
+async function* walkMarkdownFiles(dir: string): AsyncGenerator<string> {
     for await (const entry of Deno.readDir(dir)) {
         const path = join(dir, entry.name);
         if (entry.isDirectory) {
@@ -20,11 +20,7 @@ async function* walkMarkdownFiles(dir) {
     }
 }
 
-/**
- * @param {string} markdown
- * @returns {string}
- */
-function frontMatterText(markdown) {
+function frontMatterText(markdown: string): string {
     const match = /^---\n([\s\S]*?)\n---\n/.exec(markdown);
     return match?.[1] || "";
 }
@@ -39,7 +35,7 @@ Deno.test("ADR artifacts use required machine-readable status front matter", asy
         const statusFields = frontMatterText(markdown).split("\n").filter((line) => /^status\s*:/.test(line));
         assertEquals(statusFields.length, 1, `${path} must define exactly one status field`);
 
-        const { attrs, body } = extractYaml(markdown);
+        const { attrs, body } = extractYaml<AdrFrontMatter>(markdown);
         assertEquals(typeof attrs.status, "string", `${path} status must be a string`);
         assert(
             ALLOWED_ADR_STATUSES.has(attrs.status),

@@ -94,7 +94,7 @@ import {
 } from "./request-dispatch.ts";
 import { formatProviderModelReference, parseProviderModel } from "../models/model-validation.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from "./pair-checkpoint-session.ts";
-import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { recordExecutionWorkflowSnapshot } from "./execution-workflow-session.ts";
 import { directoryExists, fileExists } from "../helpers.ts";
 import {
     _AGENT_ATTENTION_NUDGES,

@@ -19,7 +19,7 @@ import { resolveMcpConfig } from "../../mcp/config.ts";
 import { startMcpIntegration } from "../../mcp/integration.ts";
 import { ensureAgyCliMcpSetup } from ".././backends/agy-cli/mcp-setup.ts";
 import { readCurrentPairCheckpoint, recordPairCheckpointSnapshot } from ".././pair-checkpoint-session.ts";
-import { recordExecutionWorkflowSnapshot } from "../execution-workflow-session.js";
+import { recordExecutionWorkflowSnapshot } from "../execution-workflow-session.ts";
 import { resolvePersistedExecutionRootConfiguration } from "./support.ts";
 
 import {

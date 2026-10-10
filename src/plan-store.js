@@ -53,7 +53,7 @@ import {
     COLLABORATION_LOCK_BYPASS,
     COLLABORATION_STATE_REMOTE_CANONICAL,
     normalizeCollaborationFrontMatter,
-} from "./shared/collaboration/lock.js";
+} from "./shared/collaboration/lock.ts";
 import {
     assertNotReservedEpicArtifactPlanName,
     isEpicArtifactPlanName,
