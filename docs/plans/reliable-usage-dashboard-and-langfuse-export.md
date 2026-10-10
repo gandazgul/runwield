@@ -38,7 +38,9 @@ optional Langfuse export plugin. It does not build a developer productivity scor
 - Pi, Claude CLI, and Antigravity CLI. Include ordinary Sessions and RunWield-started auxiliary model calls, not only
   planned implementation. Coverage does not promise identical upstream detail.
 - Link available measurements to Sessions, Plans, validation, repair, and confirmed publication. Do not invent links.
-- Local measurement is **on by default**. Preserve explicit user opt-outs. This changes the current opt-in default.
+- Local measurement stays **opt-in**. The owner confirmed on 2026-10-06 that the earlier default-on decision is
+  withdrawn: recording stays off unless explicitly enabled, and metrics must stay fast and out of the way — completing
+  the task always outranks collecting metrics.
 - Show metrics that were actually collected, including understood legacy records. Never mine old transcripts to create
   historical metrics. Disabled periods remain gaps after re-enabling.
 - Keep local measurements until the user deletes them. No automatic age-based expiry.
@@ -178,9 +180,9 @@ safe legacy readers only; no second durable analytics authority. Reporting strea
 where possible rather than rescanning years of data per browser request. A durable index can be added later if measured
 load warrants it, and must remain rebuildable without transcripts.
 
-The existing `workflowMetrics` boolean/object setting stays compatible. Normalize both forms, preserve existing scope
-precedence and explicit false values, and change the absent-setting default to enabled. Existing explicit opt-outs are
-not overwritten during upgrade. Display local-on and export-off clearly in settings.
+The existing `workflowMetrics` boolean/object setting stays compatible. Normalize both forms and preserve existing scope
+precedence and explicit false values. The absent-setting default stays disabled per the owner's 2026-10-06 decision;
+existing explicit opt-outs are not overwritten during upgrade. Display local-on and export-off clearly in settings.
 
 Recording control changes create a collection epoch. An invocation is eligible only if collection was enabled at its
 start and remains in that epoch when its observation is accepted. Disabling stops recording immediately and rejects late
@@ -190,7 +192,7 @@ observed changes without inventing an exact unobserved change time; an unobserve
 measurements,” not a known disabled duration.
 
 Recording permission controls new writes, not access to already collected history. Turning recording off must not hide
-older measurements. Upgrade must not label pre-upgrade empty periods as covered merely because the new default is on.
+older measurements. Upgrade must not label pre-upgrade empty periods as covered merely because recording is enabled now.
 Existing v1 metrics remain readable without copying generic `details` into the new contract. Display only fields with
 known meanings, labeled legacy/partial. Never infer missing tokens, cost, Plan joins, or active days from event volume.
 Do not display the same observation from v1 and v2; new collection has one writer path. Legacy history is not exported.
@@ -432,8 +434,9 @@ These are architectural boundaries, not an allowlist, implementation checklist o
 - Owner routes, safe Project serializers, `WorkspaceLayout.astro`, loaders and `RunWieldPrimitives.tsx`: existing
   browser access control and visual patterns.
 - [Complete Tool-Call Metrics](complete-tool-call-metrics.md) and
-  [extension-consent work](protect-new-package-extension-consent.md): reconcile overlaps during later planning against
-  current source. Tool advertisement/schema-token optimization is not added merely because the sibling draft names it.
+  [extension-consent work](reliable-usage-dashboard-and-langfuse-export/06-package-executable-approval-and-metrics-exporter-kind.md):
+  reconcile overlaps during later planning against current source. Tool advertisement/schema-token optimization is not
+  added merely because the sibling draft names it.
 
 ## Verification Plan
 
@@ -449,17 +452,17 @@ state does not prove this architecture. Respect sandboxed HOME and process-globa
 
 The following named scenarios identify the observable product outcomes and their PRD owners. They are not child tasks.
 
-| Outcome / proposed acceptance scenario      | Evidence that distinguishes delivery from a counterfeit                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Core — Record by default, respect gaps**  | Fresh configuration records; explicit false does not. An upgrade fixture combines explicit false, real v1 metrics, transcript-only activity and later enablement: old metrics stay visible, old unknown periods remain unknown. Work between disable/re-enable produces no records, aggregates or exports after restart/replay. A crossing invocation is excluded.                                                                                                                 |
-| **Core — Include all supported work**       | Known Pi, Claude and agy usage plus delegation, AI review, compaction and vision calls contributes once. Duplicate chunks and parent/cumulative totals do not double-count. A CLI cancellation exposes missing usage rather than zero. Fixtures establish field provenance; real CLI samples confirm tested versions.                                                                                                                                                              |
-| **Core — Persist truthful measurements**    | Concurrent Sessions/processes retain valid, uniquely identified records. Kill/restart around writes exposes only persisted evidence and explicit incomplete records. Reporting/cache rebuild leaves models, transcripts and Plans untouched. Disk failure does not stop work or pretend measurements were saved.                                                                                                                                                                   |
-| **Core — Preserve outcome meaning**         | A failed validation, repair, and confirmed publication yields one delivered attempt and separate attempt counts. Kill/restart before both publication prune paths yields one durable observation or explicit incomplete/unverified coverage, never blocked publication or invented history. Repeated cleanup does not add publication. Interruption is ongoing; non-Plan work is not undelivered failure.                                                                          |
-| **Workspace — Inspect personal usage**      | Real registered Projects populate one report with correct period/backend totals and adjacent coverage notes. Disabled/unregistered roots cannot be queried or included via crafted IDs. Phone and desktop show the same day boundaries. Missing data is not a zero chart point. Links resolve existing authorized detail surfaces.                                                                                                                                                 |
-| **Core/Workspace — Keep and clear history** | Records do not expire with age or Session deletion. Confirmed clear removes measurement history and pending payloads only; Sessions/Plans survive. Pause a second process before append and before export authorization; clear/disable from the first; resume the second. Stale records and unauthorized sends must not appear. Already-dispatched requests are distinguished. Restart and legacy reader cannot restore cleared data. Previously attempted exports are not resent. |
-| **Core — Export only after approval**       | Uninstalled, installed-but-unapproved and unconfigured states send nothing. Interrupted install cannot enable execution. New grant exports only eligible new operations in approved Projects; opt-out intervals and legacy history never escape. Endpoint changes require new consent. Captured bodies/metadata contain no private text; credentials appear only in required transport authentication, never in payloads, responses, browser storage or diagnostics.               |
-| **Core — Isolate exporter runtime**         | Export works under a CLI-backend TUI without Pi, and under owner Workspace after TUI closes. Starting TUI in Project A finds approved pending ACP-only Project B without registering/opening B. Simultaneous hosts do not send the same item. TUI measurement needs no Workspace SQLite. Plugin throw, hang and exit leave work operational.                                                                                                                                       |
-| **Core — Avoid inflated remote counts**     | Persisted send intent precedes network I/O. Simulate acceptance then lost response: mark unconfirmed, never resend, continue new records. Known non-acceptance retries. Restart does not repeat acknowledged/in-flight items. Read-back confirms matching observations without treating asynchronous absence as rejection. Real Langfuse counts and sums verify mapping, not just HTTP success.                                                                                    |
+| Outcome / proposed acceptance scenario           | Evidence that distinguishes delivery from a counterfeit                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Core — Respect recording boundaries and gaps** | Fresh configuration records nothing; explicit true records and explicit false does not. An upgrade fixture combines explicit false, real v1 metrics, transcript-only activity and later enablement: old metrics stay visible, old unknown periods remain unknown. Work between disable/re-enable produces no records, aggregates or exports after restart/replay. A crossing invocation is excluded.                                                                               |
+| **Core — Include all supported work**            | Known Pi, Claude and agy usage plus delegation, AI review, compaction and vision calls contributes once. Duplicate chunks and parent/cumulative totals do not double-count. A CLI cancellation exposes missing usage rather than zero. Fixtures establish field provenance; real CLI samples confirm tested versions.                                                                                                                                                              |
+| **Core — Persist truthful measurements**         | Concurrent Sessions/processes retain valid, uniquely identified records. Kill/restart around writes exposes only persisted evidence and explicit incomplete records. Reporting/cache rebuild leaves models, transcripts and Plans untouched. Disk failure does not stop work or pretend measurements were saved.                                                                                                                                                                   |
+| **Core — Preserve outcome meaning**              | A failed validation, repair, and confirmed publication yields one delivered attempt and separate attempt counts. Kill/restart before both publication prune paths yields one durable observation or explicit incomplete/unverified coverage, never blocked publication or invented history. Repeated cleanup does not add publication. Interruption is ongoing; non-Plan work is not undelivered failure.                                                                          |
+| **Workspace — Inspect personal usage**           | Real registered Projects populate one report with correct period/backend totals and adjacent coverage notes. Disabled/unregistered roots cannot be queried or included via crafted IDs. Phone and desktop show the same day boundaries. Missing data is not a zero chart point. Links resolve existing authorized detail surfaces.                                                                                                                                                 |
+| **Core/Workspace — Keep and clear history**      | Records do not expire with age or Session deletion. Confirmed clear removes measurement history and pending payloads only; Sessions/Plans survive. Pause a second process before append and before export authorization; clear/disable from the first; resume the second. Stale records and unauthorized sends must not appear. Already-dispatched requests are distinguished. Restart and legacy reader cannot restore cleared data. Previously attempted exports are not resent. |
+| **Core — Export only after approval**            | Uninstalled, installed-but-unapproved and unconfigured states send nothing. Interrupted install cannot enable execution. New grant exports only eligible new operations in approved Projects; opt-out intervals and legacy history never escape. Endpoint changes require new consent. Captured bodies/metadata contain no private text; credentials appear only in required transport authentication, never in payloads, responses, browser storage or diagnostics.               |
+| **Core — Isolate exporter runtime**              | Export works under a CLI-backend TUI without Pi, and under owner Workspace after TUI closes. Starting TUI in Project A finds approved pending ACP-only Project B without registering/opening B. Simultaneous hosts do not send the same item. TUI measurement needs no Workspace SQLite. Plugin throw, hang and exit leave work operational.                                                                                                                                       |
+| **Core — Avoid inflated remote counts**          | Persisted send intent precedes network I/O. Simulate acceptance then lost response: mark unconfirmed, never resend, continue new records. Known non-acceptance retries. Restart does not repeat acknowledged/in-flight items. Read-back confirms matching observations without treating asynchronous absence as rejection. Real Langfuse counts and sums verify mapping, not just HTTP success.                                                                                    |
 
 The new Core capability owns collection/export scenarios; the new Workspace capability owns the report/controls and
 links shared Core scenarios. Existing model/provider and execution/recovery scenarios stay authoritative. Delivering
@@ -474,9 +477,10 @@ unconfirmed/missing delivery disclosed. A synthetic-only demo is not a completed
 exporting real records require owner authorization; do not upload existing history to prove the new-only path.
 
 Protect existing Session/home navigation, design-system behavior, pairing, Project access, explicit recording opt-outs,
-Session authority, worktree protection, redaction and truthful workflow completion. Expected changes are local recording
-on by default, real reportable measurements instead of zero-filled absence, independent exporter loading, and visible
-collection/delivery gaps. Historical metrics reconstruction must never exist.
+Session authority, worktree protection, redaction and truthful workflow completion. Expected changes are durable
+never-blocking local recording, real reportable measurements instead of zero-filled absence, independent exporter
+loading, and visible collection/delivery gaps. Local recording stays opt-in per the owner's 2026-10-06 decision.
+Historical metrics reconstruction must never exist.
 
 ### Proposed domain language
 

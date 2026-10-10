@@ -64,7 +64,8 @@ export async function withWorkflowMetricsFixture(
                     await drainWorkflowMetrics();
                     try {
                         const contents = await Deno.readTextFile(getWorkflowMetricsFilePath(projectRoot));
-                        return contents.trim().split("\n").map((line) => JSON.parse(line));
+                        return contents.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
+                            .filter((record) => !["collection_epoch", "measurement_gap"].includes(record.event));
                     } catch (error) {
                         if (error instanceof Deno.errors.NotFound || error instanceof Deno.errors.NotADirectory) {
                             return [];

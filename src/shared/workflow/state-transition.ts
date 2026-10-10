@@ -33,7 +33,7 @@ import {
 } from "../../plan-store.js";
 import { SharedPlanLockError } from "../collaboration/lock.js";
 import { findById as findWorktreeRegistryEntryById } from "../worktree-registry.js";
-import { recordWorkflowMetric } from "./metrics.js";
+import { recordWorkflowOutcome } from "./outcome-observations.ts";
 import { resolveWorkflowPlanLocation } from "./plan-location.ts";
 
 export interface TransitionRecoveryAction {
@@ -517,6 +517,7 @@ async function runSemanticTransition<T>(
         projectRoot,
         planName,
         operation,
+        worktreeId,
         resources,
         apply,
         expectedRevision,
@@ -749,6 +750,15 @@ async function runSemanticTransition<T>(
                             : { plan: { missing: true } },
                         ...(verificationProof ? { verificationProof } : {}),
                     });
+                    await recordWorkflowOutcome(projectRoot, {
+                        category: "recovery",
+                        event: "workflow_transition_committed",
+                        operationId: transitionId,
+                        transitionId,
+                        planName,
+                        attemptId: worktreeId,
+                        outcome: "succeeded",
+                    }).catch(() => {});
                     await removeJournal(projectRoot, transitionId);
                     // The recovery just settled the uncertainty these records
                     // described, so retiring them here is what actually returns
@@ -757,12 +767,7 @@ async function runSemanticTransition<T>(
                         const supersededId = String(superseded.transitionId || "");
                         if (supersededId) await removeJournal(projectRoot, supersededId);
                     }
-                    await recordWorkflowMetric({
-                        category: "recovery",
-                        event: "semantic_transition_committed",
-                        planName,
-                        details: { operation, resources: resources.map(transitionResourceKey) },
-                    }, projectRoot).catch(() => {});
+
                     return { status: "committed", transitionId, operation, value };
                 } catch (error) {
                     if (error instanceof SharedPlanLockError) throw error;
@@ -874,6 +879,7 @@ export async function runExecutionPreparationTransition<T>(
     return await runSemanticTransition({
         projectRoot,
         planName,
+        worktreeId,
         operation: "execution_preparation",
         resources,
         expectedRevision,
@@ -904,7 +910,7 @@ export async function runExecutionPreparationTransition<T>(
  * unless it records its own external proof before mutating Git or registry state.
  */
 async function runPlanTransition<T>(
-    { projectRoot, planName, operation, apply, expectedRevision }:
+    { projectRoot, planName, worktreeId, operation, apply, expectedRevision }:
         & TransitionOptionsBase
         & { operation: string; apply: (ctx: BaseTransitionContext) => Promise<T> },
 ): Promise<TransitionResult> {
@@ -1021,13 +1027,17 @@ async function runPlanTransition<T>(
                 state: "committed",
                 committedAt: new Date().toISOString(),
             });
-            await removeJournal(projectRoot, transitionId);
-            await recordWorkflowMetric({
+            await recordWorkflowOutcome(projectRoot, {
                 category: "recovery",
-                event: "plan_transition_committed",
+                event: "workflow_transition_committed",
+                operationId: transitionId,
+                transitionId,
                 planName,
-                details: { operation },
-            }, projectRoot).catch(() => {});
+                attemptId: worktreeId,
+                outcome: "succeeded",
+            }).catch(() => {});
+            await removeJournal(projectRoot, transitionId);
+
             return { status: "committed", transitionId, operation, value };
         } catch (error) {
             if (error instanceof SharedPlanLockError) throw error;
@@ -1112,6 +1122,7 @@ export async function runPlanLifecycleEventTransition<T>(
         return await runSemanticTransition({
             projectRoot: opts.projectRoot,
             planName: opts.planName,
+            worktreeId: opts.worktreeId,
             operation: `plan_event:${opts.event}`,
             resources: opts.resources,
             expectedRevision: opts.expectedRevision,
@@ -1125,6 +1136,7 @@ export async function runPlanLifecycleEventTransition<T>(
     return await runPlanTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `plan_event:${opts.event}`,
         expectedRevision: opts.expectedRevision,
         apply: opts.record,
@@ -1174,6 +1186,7 @@ export async function runPlanReviewDecisionTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation,
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
@@ -1195,6 +1208,7 @@ export async function runSequenceReviewTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: opts.approved ? "sequence_review_approved" : "sequence_review_feedback",
         resources: [{ kind: "catalog" }, ...opts.planNames.map((id) => ({ kind: "plan" as const, id }))],
         expectedEffects: ["sequence_review_prepared", "sequence_review_accepted"],
@@ -1211,6 +1225,7 @@ export async function runReviewReopenTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: "review_reopened",
         resources: [{ kind: "plan", id: opts.planName }, { kind: "attempt", id: opts.worktreeId }],
         expectedRevision: opts.expectedRevision,
@@ -1617,6 +1632,7 @@ export async function runImplementationCheckpointTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: "implementation_checkpoint",
         resources,
         expectedRevision: opts.expectedRevision,
@@ -1648,6 +1664,7 @@ export async function runValidationOutcomeTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `validation_${opts.outcome}`,
         resources,
         expectedRevision: opts.expectedRevision,
@@ -1675,6 +1692,7 @@ export async function runEpicDecompositionFinalizeTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: "epic_decomposition_finalize",
         resources: opts.resources,
         expectedRevision: opts.expectedRevision,
@@ -1703,6 +1721,7 @@ export async function runRecoveryTransition<T>(
     return await runSemanticTransition({
         projectRoot: opts.projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `recovery_${opts.action}`,
         resources,
         supersedesUnresolved: true,
@@ -1728,6 +1747,7 @@ export async function runArchiveTransition<T>(
     return await runSemanticTransition({
         projectRoot,
         planName: opts.planName,
+        worktreeId: opts.worktreeId,
         operation: `plan_${opts.action}`,
         resources: [{ kind: "catalog" }, { kind: "plan", id: opts.planName }],
         expectedRevision: opts.expectedRevision,
