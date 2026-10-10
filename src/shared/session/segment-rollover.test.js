@@ -12,7 +12,7 @@ import {
     recordPendingSegmentContinuation,
     recordSegmentLineageEvidence,
 } from "./workflow-context-session.js";
-import { readExecutionWorkflowSnapshot } from "./execution-workflow-session.js";
+import { readExecutionWorkflowSnapshot } from "./execution-workflow-session.ts";
 import { readPersistedTutorialContext } from "./tutorial-context-session.ts";
 
 function idFactory(prefix = "id") {
