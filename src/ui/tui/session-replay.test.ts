@@ -1,7 +1,6 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { makeLongReplayFixture } from "../../testing/long-replay-fixture.ts";
-import { readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
+import { makeLongReplayFixture, readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
 import { NO_OPEN_BROWSER_PORT } from "../../shared/browser-port.ts";
 import { createInteractiveTuiComposition } from "./interactive-tui-composition.ts";
 import { VirtualTerminal } from "./testing/virtual-terminal.js";

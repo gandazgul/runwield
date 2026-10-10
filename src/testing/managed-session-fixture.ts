@@ -11,6 +11,7 @@ type ManagedSessionFixtureOptions = {
     home?: string;
     projectRoot?: string;
     dbPath?: string;
+    assistantMessages?: string[];
 };
 type RecordedModelRequest = {
     messages: string;
@@ -58,7 +59,12 @@ export async function appendTranscriptEntry(transcriptPath: string, entryId: str
     await Deno.writeTextFile(transcriptPath, `${JSON.stringify(entry)}\n`, { append: true });
 }
 
-async function writeManagedTranscript(sessionBaseDir: string, root: string, piSessionId: string): Promise<string> {
+async function writeManagedTranscript(
+    sessionBaseDir: string,
+    root: string,
+    piSessionId: string,
+    assistantMessages: string[] = [],
+): Promise<string> {
     const canonicalRoot = await Deno.realPath(root);
     const sessionDir = join(sessionBaseDir, encodeCwdForSessionDir(canonicalRoot));
     await Deno.mkdir(sessionDir, { recursive: true });
@@ -81,7 +87,22 @@ async function writeManagedTranscript(sessionBaseDir: string, root: string, piSe
             message: { role: "assistant", content: [{ type: "text", text: "Committed hello." }] },
         },
     ];
-    await Deno.writeTextFile(transcriptPath, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const savedEntries = assistantMessages.length
+        ? [
+            ...entries.map((entry, index) => ({
+                ...entry,
+                ...(index === 0 ? { version: 3 } : { parentId: index === 1 ? null : entries[index - 1].id }),
+            })),
+            ...assistantMessages.map((text, index) => ({
+                type: "message",
+                id: `saved-reply-${index}`,
+                parentId: index === 0 ? "entry-assistant" : `saved-reply-${index - 1}`,
+                timestamp: "2026-01-01T00:00:05.000Z",
+                message: fauxAssistantMessage(fauxText(text)),
+            })),
+        ]
+        : entries;
+    await Deno.writeTextFile(transcriptPath, `${savedEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
     return transcriptPath;
 }
 
@@ -98,7 +119,12 @@ export async function makeManagedSessionFixture(options: ManagedSessionFixtureOp
     const store = openOwnerCoordinationStore({ dbPath, sessionBaseDir });
     const project = store.registerProject({ root: projectRoot, idFactory: idFactory("project"), now: () => "t0" });
     const piSessionId = "pi-managed-fixture";
-    const transcriptPath = await writeManagedTranscript(sessionBaseDir, projectRoot, piSessionId);
+    const transcriptPath = await writeManagedTranscript(
+        sessionBaseDir,
+        projectRoot,
+        piSessionId,
+        options.assistantMessages,
+    );
     const session = await store.ensureSessionCatalogRecord({
         projectId: project.projectId,
         piSessionId,
@@ -216,4 +242,10 @@ export async function makeManagedSessionFixture(options: ManagedSessionFixtureOp
             if (createdHome) await Deno.remove(createdHome, { recursive: true });
         },
     };
+}
+
+export async function makeLongReplayFixture(home: string, projectRoot: string) {
+    const texts = Array.from({ length: 450 }, (_, index) => `Saved reply ${String(index + 1).padStart(3, "0")}.`);
+    const fixture = await makeManagedSessionFixture({ home, projectRoot, assistantMessages: texts });
+    return { ...fixture, texts };
 }

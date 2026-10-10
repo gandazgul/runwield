@@ -1,7 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { withRuntimeCommandFixture } from "../../cmd/testing/runtime-command-fixture.ts";
-import { makeLongReplayFixture } from "../../testing/long-replay-fixture.ts";
-import { readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
+import { makeLongReplayFixture, readTranscriptEvidence } from "../../testing/managed-session-fixture.ts";
 
 Deno.test("managed replay includes every page exactly once in saved order without changing the transcript", async () => {
     await withRuntimeCommandFixture("complete-replay-", async ({ homeDir, projectRoot }) => {
@@ -75,7 +74,7 @@ Deno.test("closing a Session during replay does not emit its history into a repl
             });
             const pending = handle.runtime.replaySession(handle.adoptedSessionId);
             await handle.runtime.closeSession(handle.adoptedSessionId);
-            const replacement = handle.runtime.adoptManagedSession({ session: second.session, generation: 1 });
+            const replacement = handle.runtime.adoptManagedSession({ session: second.session, generation: 0 });
             const newReplies: string[] = [];
             handle.runtime.subscribeSessionEvents(replacement.sessionId, (event) => {
                 if (event.type === "assistant_text_delta") newReplies.push(event.delta);
