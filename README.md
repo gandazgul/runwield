@@ -106,7 +106,8 @@ RunWield doesn't believe it:
   Findings are tracked in a Review Issue Ledger across rounds and repaired by a separate agent working in _fresh
   context_, so nothing gets rationalized away by the model that wrote it.
 - **Merge proof.** Plan work runs in a linked git worktree, and the plan is only marked `verified` after Git itself
-  confirms the sealed implementation commit reached your target branch. Not because an agent said so.
+  confirms the sealed implementation commit reached the recorded landing branch. For standalone Plans, that defaults to
+  `plan/<plan-name>`; the owner handles the onward merge or PR. Not because an agent said so.
 
 **4. Your project remembers.** Every finished plan produces a Work Record — what changed, why, what was rejected along
 the way. Combined with searchable project memory, PRDs, and ADRs, the next planning session starts from what you already
@@ -124,7 +125,7 @@ RunWield is organized around the Plan and its lifecycle. It decides:
 - Which worktree and baseline belong to it.
 - Whether implementation matches the approved intent.
 - Whether validation and repair completed.
-- Whether the exact validated result reached the target branch.
+- Whether the exact validated result reached the recorded landing branch.
 - Whether recovery is still necessary.
 - Which final outcome becomes durable planning memory.
 
@@ -147,7 +148,9 @@ You type `wld "add rate limiting to the public API"`. Then:
    carried in a ledger until they're resolved.
 7. **You review the code** in the browser — comment on lines, or ask the Engineer to change something. Your feedback
    goes back through repair and validation, and you see the updated diff before approving. This step is optional.
-8. **Merge-back is verified by Git**, and the plan flips to `verified`.
+8. **Delivery is verified by Git**, and the plan flips to `verified`. By default it lands on `plan/<plan-name>`, ready
+   for you to merge or open a PR to the intended target. [Auto-merge into target branch](docs/user-documentation/settings.md#plan-delivery)
+   delivers directly to that target when enabled.
 9. **A Manual QA checklist and a Work Record** are generated automatically, so the reasoning survives the PR.
 
 Every one of those steps is a place you can interrupt, redirect, or stop. That's the whole idea.
