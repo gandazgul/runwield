@@ -22,6 +22,12 @@ export type ValidationReviewState = {
     lastRepairReport?: string;
 };
 
+export type PendingCiDecision = { ciAttempts: number; failureReason: string };
+export type HostReviewerContinuation = { semanticRound: number; correctionCount: number; correction?: string };
+type PendingHostDecision = Extract<import("./validation-host-contract.ts").ValidationHostRequest, { kind: "decision" }>;
+type PendingHostRepair = Extract<import("./validation-host-contract.ts").ValidationHostRequest, { kind: "repair" }>;
+type HostDecisionChoices = Record<string, import("./validation-ports.ts").ValidationInteractionResponse>;
+
 export type ValidationCheckpoint = {
     version: 1;
     attemptId: string;
@@ -36,6 +42,13 @@ export type ValidationCheckpoint = {
     repairCompletedOperationId?: string;
     lastSettledOperationId?: string;
     reviewState?: ValidationReviewState;
+    pendingHostDecision?: PendingHostDecision;
+    hostDecisionChoices?: HostDecisionChoices;
+    hostDecisionSequence?: number;
+    pendingRepair?: PendingHostRepair;
+    pendingCiDecision?: PendingCiDecision;
+    hostReview?: HostReviewerContinuation;
+    operationalAttempts?: number;
     updatedAt: string;
 };
 
@@ -78,13 +91,17 @@ export function validationCheckpointCanResume(
 }
 
 export function isValidationCheckpoint(value: Partial<ValidationCheckpoint>): value is ValidationCheckpoint {
-    return value.version === VALIDATION_CHECKPOINT_VERSION &&
-        typeof value.attemptId === "string" && value.attemptId.length > 0 &&
-        typeof value.generation === "string" && value.generation.length > 0 &&
+    return (
+        value.version === VALIDATION_CHECKPOINT_VERSION &&
+        typeof value.attemptId === "string" &&
+        value.attemptId.length > 0 &&
+        typeof value.generation === "string" &&
+        value.generation.length > 0 &&
         typeof value.expectedStatus === "string" &&
         ["mechanical", "semantic", "delivery"].includes(String(value.nextPhase)) &&
         ["ready", "running", "awaiting_repair", "paused"].includes(String(value.state)) &&
-        typeof value.updatedAt === "string";
+        typeof value.updatedAt === "string"
+    );
 }
 
 /** Normalize durable review state before it is projected into a Session. */
@@ -114,6 +131,13 @@ export function makeValidationCheckpoint(args: {
     repairCompletedOperationId?: string;
     lastSettledOperationId?: string;
     reviewState?: ValidationReviewState;
+    pendingHostDecision?: PendingHostDecision;
+    hostDecisionChoices?: HostDecisionChoices;
+    hostDecisionSequence?: number;
+    pendingRepair?: PendingHostRepair;
+    pendingCiDecision?: PendingCiDecision;
+    hostReview?: HostReviewerContinuation;
+    operationalAttempts?: number;
 }): ValidationCheckpoint {
     return {
         version: VALIDATION_CHECKPOINT_VERSION,
@@ -131,6 +155,13 @@ export function makeValidationCheckpoint(args: {
             : {}),
         ...(args.lastSettledOperationId !== undefined ? { lastSettledOperationId: args.lastSettledOperationId } : {}),
         ...(args.reviewState !== undefined ? { reviewState: args.reviewState } : {}),
+        ...(args.pendingHostDecision ? { pendingHostDecision: args.pendingHostDecision } : {}),
+        ...(args.hostDecisionChoices ? { hostDecisionChoices: args.hostDecisionChoices } : {}),
+        ...(args.hostDecisionSequence !== undefined ? { hostDecisionSequence: args.hostDecisionSequence } : {}),
+        ...(args.pendingRepair ? { pendingRepair: args.pendingRepair } : {}),
+        ...(args.pendingCiDecision ? { pendingCiDecision: args.pendingCiDecision } : {}),
+        ...(args.hostReview ? { hostReview: args.hostReview } : {}),
+        ...(args.operationalAttempts !== undefined ? { operationalAttempts: args.operationalAttempts } : {}),
         updatedAt: new Date().toISOString(),
     };
 }

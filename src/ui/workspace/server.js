@@ -1,13 +1,5 @@
 // @ts-nocheck: local wrapper includes a tiny Fresh-free router and production Astro bridge with dynamic handler shapes.
 import { ownerPlanContinuationApi } from "./routes/owner-plan-continuation.ts";
-/**
- * Programmatic Workspace server composition.
- *
- * Local Workspace serving is RunWield-owned: token checks, cwd state,
- * static/theme routes, and JSON APIs stay in this wrapper while page SSR can
- * delegate to the Astro Deno adapter output when it is available.
- */
-
 import { serveHttp } from "../../shared/http-server.ts";
 import { env, versions } from "node:process";
 import { readFile } from "node:fs/promises";
@@ -119,6 +111,14 @@ import { createOwnerConnectionRegistry } from "./server/owner-connections.ts";
 import { setAstroOwnerWorkspaceSessionContinuation, setAstroOwnerWorkspaceStore } from "./server/astro-owner-data.js";
 import { WORKSPACE_PWA_PATHS, workspacePwaResponse } from "./server/workspace-pwa.ts";
 import { createWorkspaceSearchService } from "./server/workspace-search.ts";
+
+/**
+ * Programmatic Workspace server composition.
+ *
+ * Local Workspace serving is RunWield-owned: token checks, cwd state,
+ * static/theme routes, and JSON APIs stay in this wrapper while page SSR can
+ * delegate to the Astro Deno adapter output when it is available.
+ */
 
 const WORKSPACE_DIR = join(RUNWIELD_SOURCE_ROOT, "ui", "workspace");
 const ROOT_DIR = RUNWIELD_ROOT;
@@ -563,16 +563,9 @@ function linkedDocumentKind(path) {
     return "document";
 }
 
-/**
- * @typedef {Object} ReviewWorkspaceAppOptions
- * @property {string} cwd
- * @property {string} token
- * @property {Record<string, unknown>} reviewPayload
- * @property {"plan" | "code"} reviewType
- * @property {import("../review/review-launcher.ts").ReviewConversation} [reviewConversation]
- */
-/** @param {ReviewWorkspaceAppOptions} options */
-export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType, reviewConversation }) {
+/** @param {ReviewWorkspaceServerOptions} options */
+export function createReviewWorkspaceApp(options) {
+    const { cwd = getCwd(), token, reviewPayload, reviewType, reviewConversation } = options;
     const reviewAgentState =
         reviewType === "code"
             ? createReviewAgentState({ cwd, token, reviewPayload, runGuideCommand: runConfiguredGuideCommand })
@@ -623,6 +616,17 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                         return new Response("Review token required.", { status: 401 });
                     }
                     return reviewLocalConfigApi();
+                }
+                if (request.method === "GET" && url.pathname === "/api/review/revision") {
+                    if (!reviewPayload.reviewRevisionUrl || !hasReviewAssetToken(request, token)) {
+                        return new Response("Review revision unavailable.", { status: 404 });
+                    }
+                    return Response.json(
+                        { revision: reviewPayload.reviewRevision },
+                        {
+                            headers: { "cache-control": "no-store" },
+                        },
+                    );
                 }
                 if (
                     request.method === "POST" &&
@@ -688,13 +692,15 @@ export function createReviewWorkspaceApp({ cwd, token, reviewPayload, reviewType
                 if (url.pathname.startsWith("/api/review/") || isLegacyReviewApiPath(url.pathname)) {
                     return await handleReviewApiRequest(
                         request,
-                        { cwd, reviewToken: token, reviewPayload },
+                        { cwd, reviewToken: token, reviewPayload, onDecision: options.onDecision },
                         url.pathname,
                     );
                 }
                 if (!hasWorkspaceToken(request, token)) return new Response("Review token required.", { status: 401 });
                 const expectedPath = reviewType === "plan" ? "/review/plan" : "/review/code";
                 if (url.pathname === expectedPath) {
+                    const opened = await options.onReviewOpen?.();
+                    if (opened instanceof Response) return opened;
                     const payload = await currentReviewPagePayload({ cwd, reviewPayload, reviewType, token });
                     const astroResponse = await renderAstroReviewPage(request, cwd, payload);
                     if (astroResponse) return astroResponse;
@@ -1459,19 +1465,42 @@ export function startSessionQuestionWorkspaceServer(options) {
 }
 
 /**
- * @param {{ cwd?: string, token: string, reviewPayload: Record<string, unknown>, reviewType: "plan" | "code", reviewConversation?: import("../review/review-launcher.ts").ReviewConversation, host?: string, port?: number, signal?: AbortSignal, onOutput?: ReviewServerOutputListener }} options
+ * @typedef {Object} ReviewWorkspaceConversationEvent
+ * @property {string} type
+ * @property {string} delta
+ * @property {string} messageId
+ * @property {string} agentName
+ *
+ * @typedef {Object} ReviewWorkspaceConversation
+ * @property {string} id
+ * @property {string} agentLabel
+ * @property {number} revision
+ * @property {ReviewWorkspaceConversationEvent[]} events
+ *
+ * @callback ReviewPageOpenListener
+ * @returns {Promise<void | Response>}
+ *
+ * @typedef {Object} ReviewWorkspaceServerOptions
+ * @property {string} [cwd]
+ * @property {string} token
+ * @property {Record<string, unknown>} reviewPayload
+ * @property {"plan" | "code"} reviewType
+ * @property {import("../review/review-launcher.ts").ReviewConversation} [reviewConversation]
+ * @property {string} [host]
+ * @property {number} [port]
+ * @property {AbortSignal} [signal]
+ * @property {ReviewServerOutputListener} [onOutput]
+ * @property {import("./routes/api/review-handlers.js").ReviewDecisionSink} [onDecision]
+ * @property {ReviewPageOpenListener} [onReviewOpen]
  */
+
+/** @param {ReviewWorkspaceServerOptions} options */
 export function startReviewWorkspaceServer(options) {
     const cwd = options.cwd ?? getCwd();
     const host = options.host ?? "127.0.0.1";
     let decision = registerReviewDecisionPromise(options.token);
-    const app = createReviewWorkspaceApp({
-        cwd,
-        token: options.token,
-        reviewPayload: options.reviewPayload,
-        reviewType: options.reviewType,
-        reviewConversation: options.reviewConversation,
-    });
+    const appOptions = { ...options, cwd };
+    const app = createReviewWorkspaceApp(appOptions);
     let server;
     try {
         server = serveHttp(
@@ -1528,9 +1557,13 @@ export function startReviewWorkspaceServer(options) {
     return {
         url,
         waitForDecision: () => decision.promise,
-        beginReviewRound({ reviewPayload, reviewConversation }) {
+        beginReviewRound({ reviewPayload, reviewConversation, onDecision, onReviewOpen }) {
+            appOptions.onDecision = onDecision;
+            appOptions.onReviewOpen = onReviewOpen;
+            const priorRevision = options.reviewPayload.reviewRevision;
             for (const key of Object.keys(options.reviewPayload)) delete options.reviewPayload[key];
             Object.assign(options.reviewPayload, reviewPayload);
+            if (reviewPayload.reviewRevisionUrl) options.reviewPayload.reviewRevision = (priorRevision ?? 0) + 1;
             if (options.reviewConversation && reviewConversation) {
                 options.reviewConversation.agentLabel = reviewConversation.agentLabel;
                 options.reviewConversation.revision += 1;

@@ -135,6 +135,10 @@ export async function captureWorktreeTree(cwd: string): Promise<string> {
             await fsRm(indexPath);
         }
         await runGit(cwd, ["add", "-A", "--", "."], env);
+        // A copied index has a new timestamp. Its cached stat data can otherwise
+        // hide same-size edits whose file times match the old index. Re-read the
+        // tracked contents in this temporary index; never change the real index.
+        await runGit(cwd, ["add", "--renormalize", "-u", "--", "."], env);
         return (await runGit(cwd, ["write-tree"], env)).trim();
     } finally {
         await fsRm(indexPath).catch(() => {});
@@ -217,9 +221,10 @@ export async function getReviewDiff(cwd: string, { baseRef, head }: ReviewDiffOp
         throw error;
     }
     const baseTree = (await runGit(cwd, ["rev-parse", "--verify", `${commonAncestor}^{tree}`])).trim();
-    const currentTree = head.kind === "worktree"
-        ? await captureWorktreeTree(cwd)
-        : (await runGit(cwd, ["rev-parse", "--verify", `${executionCommit}^{tree}`])).trim();
+    const currentTree =
+        head.kind === "worktree"
+            ? await captureWorktreeTree(cwd)
+            : (await runGit(cwd, ["rev-parse", "--verify", `${executionCommit}^{tree}`])).trim();
     return await diffTrees(cwd, baseTree, currentTree);
 }
 

@@ -7,7 +7,7 @@ import { recordDeliveryEvidence } from "./delivery-evidence.ts";
 
 import { AGENTS } from "../../constants.js";
 import { captureWorktreeTree, getWorkflowDiff, getWorktreeReviewDiff } from "./git-snapshot.ts";
-import { buildDiffInspectionSection, createReviewDiffTool, parseDiffFiles } from "./review-diff-tool.js";
+import { buildDiffInspectionSection, parseDiffFiles } from "./review-diff-tool.js";
 import { ReviewInspection } from "./review-inspection.ts";
 import { loadEpicReviewContext, recordIntegrationNotes } from "./epic-review-context.ts";
 import { logValidationFailure } from "./validation-state-errors.ts";
@@ -21,7 +21,12 @@ import {
 } from "./review-ledger.ts";
 import { hasImplementationDiff, requiresImplementationDiff } from "./validation-scope.ts";
 import { buildValidationUserMessage, validationReviewerPauseMessage } from "./validation-user-messages.ts";
-import type { OpaqueToolDefinition, ValidationReviewOutcome, ValidationWorkflowState } from "./validation-ports.ts";
+import type {
+    IsolatedAgentSessionOutcome,
+    ValidationReviewData,
+    ValidationReviewOutcome,
+    ValidationWorkflowState,
+} from "./validation-ports.ts";
 import type {
     PhaseContext,
     ReviewFeedbackRepairPacket,
@@ -37,7 +42,7 @@ import {
     recordMetric,
     resolvePhaseContext,
 } from "./validation-context.ts";
-import { SEMANTIC_REVIEW_CYCLES } from "./validation-types.ts";
+import { SEMANTIC_REVIEW_CYCLES, semanticReviewMode } from "./validation-types.ts";
 import { clampCycle, emitHalted, emitProgress, emitStatus, repairBlockedReason } from "./validation-emit.ts";
 import { requestInteraction } from "./validation-interactions.ts";
 import { ValidationInteractionTypes } from "./validation-ports.ts";
@@ -53,6 +58,15 @@ import {
     recordOperationalRecoveryMetric,
     waitForValidationRetryWithSessionCancellation,
 } from "./validation-recovery.ts";
+
+import { sameHostIdentity, ValidationHostRejected, ValidationHostWait } from "./validation-host-contract.ts";
+import { normalizeReviewOutcome, reviewCompletionMetricDetails } from "./review-outcome.ts";
+import {
+    hostReviewerIdentity,
+    hostSemanticRepairPrompt,
+    requestHostRepair,
+    saveHostCheckpoint,
+} from "./validation-host-state.ts";
 
 export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<ValidationPhaseResult> {
     const phase = await resolvePhaseContext(args);
@@ -148,12 +162,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     }
 
     if (round >= SEMANTIC_REVIEW_CYCLES && state.lastRepairReport) {
-        const action = await promptForSemanticRoundLimit(
-            args,
-            round,
-            openItems(ledger).length,
-            true,
-        );
+        const action = await promptForSemanticRoundLimit(args, round, openItems(ledger).length, true);
         if (action === "code_review") {
             await recordDeliveryEvidence(
                 context.projectRoot,
@@ -200,6 +209,25 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 };
             }
             const feedback = typeof response.value === "string" ? response.value.trim() : "";
+            if (args.hostTurn) {
+                return await requestHostRepair(
+                    args,
+                    context,
+                    [
+                        "Continue the interrupted validation repair in this checkout. Inspect the current files before editing.",
+                        args.planContent,
+                        renderOpenItems(ledger),
+                        state.lastRepairReport,
+                        "User follow-up:",
+                        feedback,
+                        "After completing the repair, call task_completed. RunWield will rerun CI.",
+                    ]
+                        .filter(Boolean)
+                        .join("\n\n"),
+                    "engineer_follow_up",
+                    feedback,
+                );
+            }
             await recordLifecycleEvent(
                 args,
                 context.projectRoot,
@@ -250,7 +278,7 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
     // right here — another focused round on the repaired diff, no detour.
     for (;;) {
         const nextRound = round + 1;
-        const reviewMode = nextRound <= 2 ? "discovery" : "verify";
+        const reviewMode = semanticReviewMode(nextRound);
         // The reviewer runs in its own session, so without this the whole round is
         // silent: the user sees the Engineer finish, then nothing, and the verdict
         // lands only in the Plan's failure reason. Say a round is starting, and say
@@ -333,6 +361,9 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 reviewLedger: review.ledger,
             };
             const checkpoint = makeValidationCheckpoint({
+                ...priorCheckpoint,
+                hostReview: undefined,
+                operationalAttempts: 0,
                 attemptId: context.worktreeId || "in-place",
                 generation: priorCheckpoint?.generation || crypto.randomUUID(),
                 status: "reviewed",
@@ -388,6 +419,9 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             repairBaselineTree,
         };
         const repairCheckpoint = makeValidationCheckpoint({
+            ...priorCheckpoint,
+            hostReview: undefined,
+            operationalAttempts: 0,
             attemptId: context.worktreeId || "in-place",
             generation: priorCheckpoint?.generation || crypto.randomUUID(),
             status: "implemented",
@@ -426,7 +460,8 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
                 },
             });
             if (!repair.completed) {
-                const reason = repair.reason ||
+                const reason =
+                    repair.reason ||
                     "Reviewer-Feedback Engineer stopped without task_completed during semantic repair.";
                 return { kind: "paused", planName: args.planName, projectRoot: context.projectRoot, reason };
             }
@@ -445,6 +480,15 @@ export async function runSemanticReviewPhase(args: ValidationLoopArgs): Promise<
             "ai-repair",
             "Started",
         );
+        if (args.hostTurn) {
+            args.validationCheckpoint = repairCheckpoint;
+            return await requestHostRepair(
+                args,
+                context,
+                hostSemanticRepairPrompt(context, diffText, findingsSection),
+                "semantic",
+            );
+        }
         emitProgress(args, buildValidationUserMessage({ kind: "review_repair", repairKind: "semantic" }), "warning", {
             stage: "engineer_repair",
             outcome: "running",
@@ -491,32 +535,30 @@ export async function runReviewerRound(
     diffText: string,
 ): Promise<
     | {
-        kind: "complete";
-        outcome: ValidationReviewOutcome;
-        ledger: SemanticRoundState["reviewLedger"];
-        resolvedCount: number;
-        appendedCount: number;
-    }
+          kind: "complete";
+          outcome: ValidationReviewOutcome;
+          ledger: SemanticRoundState["reviewLedger"];
+          resolvedCount: number;
+          appendedCount: number;
+      }
     | { kind: "paused"; result: ValidationPhaseResult }
     | { kind: "failed"; reason: string }
 > {
-    // One in-memory session manager per round, shared across every nudge attempt:
-    // the reviewer's accumulated context is what makes a nudge "continue this
-    // review" instead of "start over".
-    const reviewerSessionManager = args.session.createInMemorySessionManager(context.executionCwd);
-    let nudgeReason: string | undefined;
+    const savedHostReview = args.validationCheckpoint?.hostReview;
+    let nudgeReason: string | undefined =
+        savedHostReview?.semanticRound === state.semanticRound ? savedHostReview.correction : undefined;
     let inspectedDiff = false;
     let latestOutcome: ValidationReviewOutcome | null = null;
     // A child of an Epic with its own branch is reviewed for its own correctness, with the Epic as context.
-    const epicContext = await loadEpicReviewContext(context.projectRoot, args.planName, args.triageMeta).catch(() =>
-        null
+    const epicContext = await loadEpicReviewContext(context.projectRoot, args.planName, args.triageMeta).catch(
+        () => null,
     );
-    let operationalAttempt = 1;
+    let operationalAttempt = args.hostTurn ? (args.validationCheckpoint?.operationalAttempts || 0) + 1 : 1;
     const repairDiffText = state.repairBaselineTree
         ? await getWorkflowDiff(context.executionCwd, state.repairBaselineTree)
         : "";
     const requiredScope = reviewMode === "discovery" ? "full" : "repair";
-    const inspection = new ReviewInspection(
+    let inspection = new ReviewInspection(
         parseDiffFiles(requiredScope === "full" ? diffText : repairDiffText).map((file) => ({
             scope: requiredScope,
             path: file.path,
@@ -536,7 +578,11 @@ export async function runReviewerRound(
         });
     }
 
-    for (let attempt = 1; !latestOutcome; attempt++) {
+    const initialAttempt =
+        args.hostTurn && savedHostReview?.semanticRound === state.semanticRound
+            ? savedHostReview.correctionCount + 1
+            : 1;
+    for (let attempt = initialAttempt; !latestOutcome; attempt++) {
         if (attempt > 1) {
             emitStatus(
                 args,
@@ -559,18 +605,101 @@ export async function runReviewerRound(
             inspection,
             epicContext?.section || "",
         );
+        const correction = nudgeReason;
         nudgeReason = undefined;
         try {
-            const sessionOutcome = await args.session.runIsolatedAgentSession({
-                kind: "reviewer",
+            const request = {
+                kind: "reviewer" as const,
                 agentName: AGENTS.REVIEWER,
                 userRequest: config.prompt,
                 cwd: context.executionCwd,
                 reviewerMode: reviewMode,
-                customTools: config.customTools,
-                sessionManager: reviewerSessionManager,
-            });
+                review: config.review,
+                ledger: state.reviewLedger,
+            };
+            let sessionOutcome: Extract<IsolatedAgentSessionOutcome, { kind: "reviewer" }>;
+            if (args.hostTurn) {
+                const checkpoint = args.validationCheckpoint!;
+                const identity = await hostReviewerIdentity(
+                    checkpoint,
+                    state.semanticRound,
+                    reviewMode,
+                    attempt - 1,
+                    diffText,
+                    repairDiffText,
+                );
+                const resume = args.hostTurn.resume;
+                if (resume?.kind === "reviewer" && !args.hostTurn.consumed) {
+                    if (!sameHostIdentity(identity, resume.identity)) throw new ValidationHostRejected();
+                    try {
+                        inspection = ReviewInspection.fromRecorded(
+                            parseDiffFiles(requiredScope === "full" ? diffText : repairDiffText).map((file) => ({
+                                scope: requiredScope,
+                                path: file.path,
+                                byteLength: file.byteLength,
+                            })),
+                            requiredScope,
+                            resume.coverage,
+                        );
+                    } catch (error) {
+                        throw new ValidationHostRejected(
+                            `Review is incomplete. ${error instanceof Error ? error.message : String(error)}`,
+                        );
+                    }
+                    const normalized = resume.outcome
+                        ? normalizeReviewOutcome(resume.outcome, state.reviewLedger)
+                        : null;
+                    const coverageFeedback = resume.coverage.length ? inspection.feedback() : "";
+                    if (normalized && !resume.failure && !inspection.feedback()) {
+                        const metricDetails = reviewCompletionMetricDetails(normalized);
+                        if (metricDetails) {
+                            await recordMetric(args, context.projectRoot, {
+                                category: "validation",
+                                event: "review_complete",
+                                agentName: AGENTS.REVIEWER,
+                                details: { ...metricDetails },
+                            });
+                        }
+                    }
+                    nudgeReason =
+                        coverageFeedback || (normalized && !normalized.accepted ? normalized.message : undefined);
+                    sessionOutcome = resume.failure
+                        ? { kind: "reviewer", outcome: "operational_failure", failure: resume.failure }
+                        : {
+                              kind: "reviewer" as const,
+                              outcome: "completed" as const,
+                              reviewOutcome: normalized?.accepted && !coverageFeedback ? normalized.details : null,
+                              usedDiffTool:
+                                  resume.coverage.some((span) => span.end > span.start) ||
+                                  parseDiffFiles(requiredScope === "full" ? diffText : repairDiffText).length === 0,
+                              trustedOpaqueMcpReview: false,
+                          };
+                    args.hostTurn.consumed = true;
+                } else {
+                    await saveHostCheckpoint(args, {
+                        hostReview: {
+                            ...checkpoint.hostReview,
+                            semanticRound: state.semanticRound,
+                            correctionCount: attempt - 1,
+                            correction,
+                        },
+                    });
+                    throw new ValidationHostWait({
+                        kind: "reviewer",
+                        identity,
+                        prompt: config.prompt,
+                        cwd: context.executionCwd,
+                        reviewMode,
+                        requiredScope,
+                        fullDiff: diffText,
+                        repairDiff: repairDiffText,
+                    });
+                }
+            } else sessionOutcome = await args.session.runIsolatedAgentSession(request);
             if (sessionOutcome.outcome === "operational_failure") {
+                if (args.hostTurn && sessionOutcome.failure.recoveryClass === "transient") {
+                    await saveHostCheckpoint(args, { operationalAttempts: operationalAttempt });
+                }
                 const decision = decideValidationRecovery({
                     failure: sessionOutcome.failure,
                     attempt: sessionOutcome.failure.recoveryClass === "transient" ? operationalAttempt : attempt,
@@ -580,6 +709,19 @@ export async function runReviewerRound(
                 });
                 await recordOperationalRecoveryMetric(args, context.projectRoot, decision.result);
                 emitStatus(args, decision.result.message, decision.action === "halt" ? "error" : "warning");
+                if (decision.action === "retry" && args.hostTurn) {
+                    await saveHostCheckpoint(args, { operationalAttempts: operationalAttempt });
+                    return {
+                        kind: "paused",
+                        result: {
+                            kind: "paused",
+                            planName: args.planName,
+                            projectRoot: context.projectRoot,
+                            reason: decision.result.message,
+                            recovery: decision.result,
+                        },
+                    };
+                }
                 if (decision.action === "retry") {
                     const wait = await waitForValidationRetryWithSessionCancellation(
                         args,
@@ -597,6 +739,16 @@ export async function runReviewerRound(
                     continue;
                 }
                 preserveReviewerRoundState();
+                if (args.hostTurn && sessionOutcome.failure.recoveryClass === "correctable") {
+                    await saveHostCheckpoint(args, {
+                        hostReview: {
+                            ...args.validationCheckpoint?.hostReview,
+                            semanticRound: state.semanticRound,
+                            correctionCount: attempt,
+                            correction: decision.result.message,
+                        },
+                    });
+                }
                 return {
                     kind: "paused",
                     result: {
@@ -613,19 +765,21 @@ export async function runReviewerRound(
             const outcome = sessionOutcome.reviewOutcome;
             const unaccounted = unaccountedOpenItems(state.reviewLedger, outcome?.findings);
             if (!outcome) {
-                const correction = inspection.feedback() ||
+                const correction =
+                    inspection.feedback() ||
                     (unaccounted.length
-                        ? `Account for every open finding: ${
-                            unaccounted.join(", ")
-                        }. Reuse the existing identities exactly; confirm or reject each fix with a reason.`
+                        ? `Account for every open finding: ${unaccounted.join(
+                              ", ",
+                          )}. Reuse the existing identities exactly; confirm or reject each fix with a reason.`
                         : "");
                 const failure = classifyValidationOperationalError({
                     source: "reviewer_protocol",
                     kind: "missing_review_complete",
                     operation: "semantic_review",
                     message: "Semantic Reviewer finished without an accepted review_complete.",
-                    required:
-                        `No review_complete was accepted. Follow any tool rejection instructions and retry without restarting the review. ${correction}`,
+                    required: `${
+                        nudgeReason || ""
+                    } No review_complete was accepted. Follow any tool rejection instructions and retry without restarting the review. ${correction}`,
                 });
                 const decision = decideValidationRecovery({
                     failure,
@@ -640,6 +794,16 @@ export async function runReviewerRound(
                     continue;
                 }
                 preserveReviewerRoundState();
+                if (args.hostTurn) {
+                    await saveHostCheckpoint(args, {
+                        hostReview: {
+                            ...args.validationCheckpoint?.hostReview,
+                            semanticRound: state.semanticRound,
+                            correctionCount: attempt,
+                            correction: decision.result.message,
+                        },
+                    });
+                }
                 return {
                     kind: "paused",
                     result: {
@@ -672,6 +836,16 @@ export async function runReviewerRound(
                     continue;
                 }
                 preserveReviewerRoundState();
+                if (args.hostTurn) {
+                    await saveHostCheckpoint(args, {
+                        hostReview: {
+                            ...args.validationCheckpoint?.hostReview,
+                            semanticRound: state.semanticRound,
+                            correctionCount: attempt,
+                            correction: decision.result.message,
+                        },
+                    });
+                }
                 return {
                     kind: "paused",
                     result: {
@@ -685,9 +859,9 @@ export async function runReviewerRound(
             } else if (unaccounted.length > 0) {
                 const required = `Your result does not mention ${
                     unaccounted.length === 1 ? "this open finding" : "these open findings"
-                }: ${
-                    unaccounted.join(", ")
-                }. Every open finding must appear in your \`findings\` array — with \`resolved: true\` if you have verified the fix in the code, or with \`resolved: false\` and what is still missing. Reuse the existing identities exactly; do not renumber them or report the same issue as a new finding. Call review_complete again with the complete set.`;
+                }: ${unaccounted.join(
+                    ", ",
+                )}. Every open finding must appear in your \`findings\` array — with \`resolved: true\` if you have verified the fix in the code, or with \`resolved: false\` and what is still missing. Reuse the existing identities exactly; do not renumber them or report the same issue as a new finding. Call review_complete again with the complete set.`;
                 const failure = classifyValidationOperationalError({
                     source: "reviewer_protocol",
                     kind: "unaccounted_findings",
@@ -709,6 +883,16 @@ export async function runReviewerRound(
                     continue;
                 }
                 preserveReviewerRoundState();
+                if (args.hostTurn) {
+                    await saveHostCheckpoint(args, {
+                        hostReview: {
+                            ...args.validationCheckpoint?.hostReview,
+                            semanticRound: state.semanticRound,
+                            correctionCount: attempt,
+                            correction: decision.result.message,
+                        },
+                    });
+                }
                 return {
                     kind: "paused",
                     result: {
@@ -723,6 +907,9 @@ export async function runReviewerRound(
                 latestOutcome = outcome;
             }
         } catch (error) {
+            if (args.hostTurn || error instanceof ValidationHostWait || error instanceof ValidationHostRejected) {
+                throw error;
+            }
             await logValidationFailure(error instanceof Error ? error : new Error(String(error)), "semantic_review");
             const failure = classifyValidationOperationalError({
                 source: "provider",
@@ -828,6 +1015,11 @@ function emitReviewerLedgerReport(
     );
 }
 
+export type SemanticReviewAttempt = {
+    prompt: string;
+    review: ValidationReviewData;
+};
+
 export function buildSemanticReviewAttempt(
     attempt: number,
     nudgeReason: string | undefined,
@@ -838,23 +1030,22 @@ export function buildSemanticReviewAttempt(
     planContent = "",
     inspection?: ReviewInspection,
     epicContextSection = "",
-): {
-    prompt: string;
-    customTools: OpaqueToolDefinition[];
-} {
+): SemanticReviewAttempt {
     const hasRepairScope = state.repairBaselineTree.trim() !== "";
-    const toolDiffs = hasRepairScope ? { full: diffText, repair: repairDiffText } : { full: diffText };
-    // `createReviewDiffTool` returns a Pi ToolDefinition; the engine brands it opaque
-    // here so the adapter can un-brand it once at the port boundary.
-    const customTools = [createReviewDiffTool(toolDiffs, {
-        inspection,
-        ledger: state.reviewLedger,
-    }) as unknown as OpaqueToolDefinition];
+    const requiredScope = reviewMode === "verify" ? "repair" : "full";
+    const review: ValidationReviewData = {
+        fullDiff: diffText,
+        repairDiff: repairDiffText,
+        hasRepairScope,
+        requiredScope,
+        inspection: inspection || new ReviewInspection([]),
+    };
     if (attempt > 1) {
         return {
-            prompt: nudgeReason ||
+            prompt:
+                nudgeReason ||
                 "You have not called review_complete yet. Finish this review now by calling review_complete with your decision. Do not restart the review — use what you have already inspected.",
-            customTools,
+            review,
         };
     }
 
@@ -909,7 +1100,7 @@ export function buildSemanticReviewAttempt(
     );
     return {
         prompt: sections.join("\n"),
-        customTools,
+        review,
     };
 }
 
@@ -938,9 +1129,10 @@ export async function dispatchReviewFeedbackRepair(
                 worktreeId: context.worktreeId,
                 worktreeBranch: context.worktreeBranch,
                 worktreeBaseBranch: context.worktreeBaseBranch,
-                authorityNote: packet.repairKind === "human_feedback"
-                    ? "A human reviewed this change. Their feedback is authoritative."
-                    : "A code reviewer found these issues. Fix every finding.",
+                authorityNote:
+                    packet.repairKind === "human_feedback"
+                        ? "A human reviewed this change. Their feedback is authoritative."
+                        : "A code reviewer found these issues. Fix every finding.",
                 repairsNeeded: [
                     "### Findings",
                     "",
@@ -953,7 +1145,12 @@ export async function dispatchReviewFeedbackRepair(
             }),
             images: packet.images,
             cwd: context.executionCwd,
-            customTools: [createReviewDiffTool({ full: packet.diffText }) as unknown as OpaqueToolDefinition],
+            review: {
+                fullDiff: packet.diffText,
+                repairDiff: "",
+                requiredScope: "full",
+                inspection: new ReviewInspection([]),
+            },
         });
         if (sessionOutcome.outcome === "operational_failure") {
             return { completed: false, report: "", reason: sessionOutcome.failure.message };
@@ -988,12 +1185,10 @@ export async function dispatchReviewFeedbackRepair(
 export function reviewFindingMetrics(findings: ValidationReviewOutcome["findings"], round: number) {
     return {
         initialFindingCount: round === 1 ? findings.filter((finding) => !finding.id).length : 0,
-        missedOriginalCount: round > 1
-            ? findings.filter((finding) => !finding.id && finding.origin === "missed_original").length
-            : 0,
-        repairRegressionCount: round > 1
-            ? findings.filter((finding) => !finding.id && finding.origin === "repair_regression").length
-            : 0,
+        missedOriginalCount:
+            round > 1 ? findings.filter((finding) => !finding.id && finding.origin === "missed_original").length : 0,
+        repairRegressionCount:
+            round > 1 ? findings.filter((finding) => !finding.id && finding.origin === "repair_regression").length : 0,
         unclassifiedNewCount: round > 1 ? findings.filter((finding) => !finding.id && !finding.origin).length : 0,
         existingStillOpenCount: findings.filter((finding) => finding.id && !finding.resolved).length,
         fixConfirmedCount: findings.filter((finding) => finding.id && finding.resolved).length,
