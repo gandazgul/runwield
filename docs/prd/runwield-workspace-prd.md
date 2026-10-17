@@ -314,6 +314,8 @@ Records, Session history, branches, and RunWield worktrees stay as they are.
 can relink, disable, or remove a Project whose root is missing or disabled. Disabling is reversible. Remove deletes the
 registration completely and returns to Projects; adding the directory again creates a new registration and rediscovers
 its Sessions and artifacts. Repository content becomes available when the Project is enabled and its root exists.
+Project requests preserve caller-supplied HTTP headers in every standard browser header format, together with the
+default JSON content type and owner CSRF token unless explicitly overridden by the caller.
 
 **Requirement: Restore archived Sessions from Project settings.** Project settings has General and Archived Sessions
 tabs. Archived Sessions lists archived names in pages, links to their conversations, and offers Unarchive. Unarchive
@@ -346,6 +348,8 @@ and slide the highlight; sidebars open and close with subtle motion. Reduced-mot
   worktrees remain. A removed Project leaves Projects, the sidebar, and the Dashboard, and its old settings URL stops
   resolving; adding its directory again rediscovers its Sessions.
 - Given a missing Project root, its settings page opens and offers relink, disable, and remove.
+- Given custom request headers as a `Headers` instance, tuple list, or record, Project linking and settings requests
+  retain those headers and the default owner CSRF token without changing the caller's request options.
 - Given an archived Session, Archived Sessions lists it with paging and opens its conversation; Unarchive returns the
   same Session to ordinary history.
 - Given a foreign Session or an unauthorized Project, an Archive or Unarchive request fails and the Session stays as
